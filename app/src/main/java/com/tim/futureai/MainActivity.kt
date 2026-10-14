@@ -17,8 +17,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.lifecycle.lifecycleScope
+import com.tim.futureai.core.security.SecureKeyStore
+import com.tim.futureai.data.ai.OpenAiCompatProvider
+import com.tim.futureai.domain.ai.AiChatConfig
 import com.tim.futureai.feature.chat.ChatScreen
 import com.tim.futureai.feature.chat.ChatUiState
+import com.tim.futureai.feature.chat.ChatViewModel
 
 // 深色科技风基础配色（后续演进到 core 设计系统）。
 private val TechDarkColors = darkColorScheme(
@@ -44,16 +49,31 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // 组装依赖：安全存储 → 配置读取 → Provider → ViewModel。
+        val keyStore = SecureKeyStore(this)
+        val provider = OpenAiCompatProvider(configProvider = {
+            val config = AiChatConfig(
+                baseUrl = keyStore.getString(SecureKeyStore.KEY_BASE_URL).orEmpty(),
+                model = keyStore.getString(SecureKeyStore.KEY_MODEL).orEmpty(),
+                apiKey = keyStore.getString(SecureKeyStore.KEY_API).orEmpty(),
+            )
+            if (config.isConfigured()) config else null
+        })
+        val viewModel = ChatViewModel(lifecycleScope, provider)
+
         setContent {
             MaterialTheme(
                 colorScheme = if (isSystemInDarkTheme()) TechDarkColors else TechLightColors,
             ) {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    var state by remember { mutableStateOf(ChatUiState()) }
+                    var uiState by remember { mutableStateOf<ChatUiState>(ChatUiState()) }
+                    viewModel.onStateChanged = { uiState = it }
                     ChatScreen(
-                        state = state,
-                        onInputChanged = { text -> state = state.updateInput(text) },
-                        onSend = { state = state.send() },
+                        state = uiState,
+                        onInputChanged = viewModel::updateInput,
+                        onSend = viewModel::send,
+                        onDismissNotice = viewModel::dismissNotice,
                         modifier = Modifier.padding(innerPadding),
                     )
                 }

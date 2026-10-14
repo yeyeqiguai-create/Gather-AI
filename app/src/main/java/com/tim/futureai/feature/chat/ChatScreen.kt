@@ -1,6 +1,7 @@
 package com.tim.futureai.feature.chat
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,12 +12,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -40,6 +43,7 @@ fun ChatScreen(
     state: ChatUiState,
     onInputChanged: (String) -> Unit,
     onSend: () -> Unit,
+    onDismissNotice: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -54,25 +58,50 @@ fun ChatScreen(
         },
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .imePadding(),
+                .padding(padding),
         ) {
-            MessageList(
-                messages = state.messages,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-            )
-            InputBar(
-                text = state.inputText,
-                canSend = state.canSend,
-                onTextChanged = onInputChanged,
-                onSend = onSend,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            Column(modifier = Modifier.fillMaxSize()) {
+                MessageList(
+                    messages = state.messages,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                )
+                InputBar(
+                    text = state.inputText,
+                    canSend = state.canSend,
+                    isSending = state.isLoading,
+                    onTextChanged = onInputChanged,
+                    onSend = onSend,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            state.notice?.let { notice ->
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = MaterialTheme.shapes.medium,
+                    tonalElevation = 4.dp,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(16.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        Text(
+                            text = notice,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        TextButton(onClick = onDismissNotice) { Text("知道了") }
+                    }
+                }
+            }
         }
     }
 }
@@ -126,6 +155,7 @@ private fun MessageBubble(message: ChatBubble, modifier: Modifier = Modifier) {
 private fun InputBar(
     text: String,
     canSend: Boolean,
+    isSending: Boolean,
     onTextChanged: (String) -> Unit,
     onSend: () -> Unit,
     modifier: Modifier = Modifier,
@@ -143,8 +173,12 @@ private fun InputBar(
             maxLines = 4,
             shape = MaterialTheme.shapes.large,
         )
-        Button(onClick = onSend, enabled = canSend) {
-            Text("发送")
+        if (isSending) {
+            CircularProgressIndicator(modifier = Modifier.padding(12.dp))
+        } else {
+            Button(onClick = onSend, enabled = canSend) {
+                Text("发送")
+            }
         }
     }
 }
