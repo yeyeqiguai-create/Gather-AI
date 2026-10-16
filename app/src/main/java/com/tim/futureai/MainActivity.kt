@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Box
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.tim.futureai.core.security.SecureKeyStore
 import com.tim.futureai.data.ai.OpenAiCompatProvider
@@ -51,6 +52,10 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+        }
 
         // 组装依赖：安全存储 → 配置读取 → Provider → ViewModel。
         val keyStore = SecureKeyStore(this)
