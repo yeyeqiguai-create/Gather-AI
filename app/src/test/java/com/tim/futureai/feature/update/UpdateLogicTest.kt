@@ -49,7 +49,8 @@ class UpdateLogicTest {
         assertEquals("Gather-AI-v0.1.4.02-Revise2-internal-dev.apk", release.apk?.fileName)
         assertEquals(42L, release.apk?.sizeBytes)
         assertEquals("New features", release.notes)
-        assertTrue(release.metadataUrl?.endsWith("/update.json?download=1") == true)
+        assertTrue(release.metadataUrl?.endsWith("/update.json?download=1&sha256=${"c".repeat(64)}") == true)
+        assertTrue(release.apk?.downloadUrl?.endsWith("app.apk?download=1&sha256=$digest") == true)
         val metadata = UpdateMetadataParser.parse(
             UpdateMetadataParser.encode(com.tim.futureai.feature.update.UpdateMetadata(
                 release.versionName, 12, "New features", release.apk!!.downloadUrl, digest,

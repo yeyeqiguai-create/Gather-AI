@@ -66,11 +66,15 @@ object GitHubReleaseParser {
                 val digest = asset["digest"]?.asString()?.takeIf { digestPattern.matches(it) }?.substringAfter(':')
                     ?: return@let null
                 val size = (asset["size"] as? JsonValue.JNumber)?.value?.toLong()?.takeIf { it >= 0 }
-                ApkAsset(name, url, digest.lowercase(), size)
+                ApkAsset(name, withDigestCacheKey(url, digest.substringAfter(':')), digest.substringAfter(':').lowercase(), size)
             }
-            val metadataUrl = assets.firstOrNull { it["name"]?.asString() == "update.json" }
-                ?.get("browser_download_url")?.asString()?.takeIf { it.startsWith("https://github.com/") }
-                ?.let { if ('?' in it) "$it&download=1" else "$it?download=1" }
+            val metadataAsset = assets.firstOrNull { it["name"]?.asString() == "update.json" }
+            val metadataUrl = metadataAsset?.get("browser_download_url")?.asString()
+                ?.takeIf { it.startsWith("https://github.com/") }
+                ?.let { url ->
+                    val digest = metadataAsset["digest"]?.asString()?.takeIf { digestPattern.matches(it) }?.substringAfter(':')
+                    digest?.let { withDigestCacheKey(url, it) }
+                }
             val body = fields["body"]?.asString().orEmpty()
             releases += UpdateRelease(
                 tag = tag,
@@ -99,6 +103,9 @@ object GitHubReleaseParser {
             name.contains(versionPart) && (tag.endsWith("-internal-dev") == name.contains("internal-dev"))
         }
     }
+
+    private fun withDigestCacheKey(url: String, digest: String): String =
+        "$url${if ('?' in url) "&" else "?"}download=1&sha256=$digest"
 }
 
 object UpdateMetadataParser {
