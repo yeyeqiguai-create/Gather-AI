@@ -70,6 +70,7 @@ object GitHubReleaseParser {
             }
             val metadataUrl = assets.firstOrNull { it["name"]?.asString() == "update.json" }
                 ?.get("browser_download_url")?.asString()?.takeIf { it.startsWith("https://github.com/") }
+                ?.let { if ('?' in it) "$it&download=1" else "$it?download=1" }
             val body = fields["body"]?.asString().orEmpty()
             releases += UpdateRelease(
                 tag = tag,
