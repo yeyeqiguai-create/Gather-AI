@@ -1,12 +1,15 @@
 package com.tim.futureai.feature.chat
 
 import com.tim.futureai.domain.model.MessageRole
+import com.tim.futureai.domain.model.ChatSession
 
 /**
  * 聊天页状态与交互逻辑（纯 Kotlin，可单元测试；渲染交给 ChatScreen）。
  */
 data class ChatUiState(
     val sessionTitle: String = "Gather AI",
+    val activeSessionId: String = "",
+    val sessions: List<ChatSession> = emptyList(),
     val messages: List<ChatBubble> = emptyList(),
     val inputText: String = "",
     /** 请求进行中（等待 AI 回复）。 */

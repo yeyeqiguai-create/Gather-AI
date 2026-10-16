@@ -165,6 +165,26 @@ fun FutureGlyph(
                 line(20f, 4f, 20f, 10f, 1.8f)
                 line(20f, 10f, 14f, 10f, 1.8f)
             }
+            "sessions" -> {
+                drawRoundRect(tint, topLeft = point(3f, 4f), size = androidx.compose.ui.geometry.Size(18f * unit, 5f * unit), cornerRadius = androidx.compose.ui.geometry.CornerRadius(2f * unit), style = Stroke(1.6f * unit))
+                drawRoundRect(tint, topLeft = point(3f, 11f), size = androidx.compose.ui.geometry.Size(18f * unit, 5f * unit), cornerRadius = androidx.compose.ui.geometry.CornerRadius(2f * unit), style = Stroke(1.6f * unit))
+                line(7f, 18f, 17f, 18f, 1.6f)
+                line(7f, 21f, 17f, 21f, 1.6f)
+            }
+            "plus" -> { line(12f, 4f, 12f, 20f, 2f); line(4f, 12f, 20f, 12f, 2f) }
+            "edit" -> {
+                line(5f, 19f, 7f, 13f, 1.8f)
+                line(7f, 13f, 17f, 3f, 1.8f)
+                line(17f, 3f, 21f, 7f, 1.8f)
+                line(21f, 7f, 11f, 17f, 1.8f)
+                line(11f, 17f, 5f, 19f, 1.8f)
+            }
+            "delete" -> {
+                line(4f, 7f, 20f, 7f, 1.8f)
+                line(9f, 4f, 15f, 4f, 1.8f)
+                drawRoundRect(tint, topLeft = point(6f, 8f), size = androidx.compose.ui.geometry.Size(12f * unit, 13f * unit), cornerRadius = androidx.compose.ui.geometry.CornerRadius(2f * unit), style = Stroke(1.7f * unit))
+                line(10f, 11f, 10f, 17f, 1.4f); line(14f, 11f, 14f, 17f, 1.4f)
+            }
             "check" -> {
                 drawCircle(tint, 9f * unit, center = point(12f, 12f), style = Stroke(1.7f * unit))
                 line(7.5f, 12f, 10.5f, 15f, 1.8f)

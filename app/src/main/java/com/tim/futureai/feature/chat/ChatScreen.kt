@@ -33,6 +33,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -43,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,10 +57,14 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tim.futureai.domain.model.MessageRole
 import com.tim.futureai.domain.model.MessageStatus
+import com.tim.futureai.domain.model.ChatSession
 import com.tim.futureai.ui.theme.FutureBackdrop
 import com.tim.futureai.ui.theme.FutureGlyph
 import com.tim.futureai.ui.theme.FuturePalette
@@ -86,15 +92,20 @@ fun ChatScreen(
     onExamplePrompt: (String) -> Unit = onInputChanged,
     onRegenerate: (Int) -> Unit = {},
     onRetry: (Int) -> Unit = {},
+    onNewSession: () -> Unit = {},
+    onSelectSession: (String) -> Unit = {},
+    onRenameSession: (String, String) -> Boolean = { _, _ -> false },
+    onDeleteSession: (String) -> Boolean = { false },
     isAiConfigured: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
+    var showSessionManager by remember { mutableStateOf(false) }
     FutureBackdrop(modifier) {
         androidx.compose.material3.Scaffold(
             modifier = Modifier.fillMaxSize(),
             containerColor = Color.Transparent,
             contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
-            topBar = { BrandBar(onSettingsClick) },
+            topBar = { BrandBar(state.sessionTitle, { showSessionManager = true }, onSettingsClick) },
             bottomBar = {
                 Composer(
                     text = state.inputText,
@@ -131,11 +142,20 @@ fun ChatScreen(
                 }
             }
         }
+        if (showSessionManager) SessionManagerDialog(
+            sessions = state.sessions,
+            activeSessionId = state.activeSessionId,
+            onDismiss = { showSessionManager = false },
+            onNew = { onNewSession(); showSessionManager = false },
+            onSelect = { onSelectSession(it); showSessionManager = false },
+            onRename = onRenameSession,
+            onDelete = onDeleteSession,
+        )
     }
 }
 
 @Composable
-private fun BrandBar(onSettingsClick: () -> Unit) {
+private fun BrandBar(sessionTitle: String, onSessionsClick: () -> Unit, onSettingsClick: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(top = 12.dp, start = 22.dp, end = 18.dp, bottom = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -149,12 +169,86 @@ private fun BrandBar(onSettingsClick: () -> Unit) {
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text("Gather AI", color = FuturePalette.Text, fontSize = 19.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp)
-            Text("YOUR THOUGHT PARTNER", color = FuturePalette.Muted, fontSize = 9.sp, letterSpacing = 1.5.sp)
+            Text(sessionTitle, color = FuturePalette.Muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+        Box(
+            modifier = Modifier.size(44.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onSessionsClick),
+            contentAlignment = Alignment.Center,
+        ) { FutureGlyph("sessions", tint = FuturePalette.VioletBright, size = 21.dp) }
+        Spacer(Modifier.width(8.dp))
         Box(
             modifier = Modifier.size(44.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onSettingsClick),
             contentAlignment = Alignment.Center,
         ) { FutureGlyph("settings", tint = FuturePalette.VioletBright, size = 21.dp) }
+    }
+}
+
+@Composable
+private fun SessionManagerDialog(
+    sessions: List<ChatSession>,
+    activeSessionId: String,
+    onDismiss: () -> Unit,
+    onNew: () -> Unit,
+    onSelect: (String) -> Unit,
+    onRename: (String, String) -> Boolean,
+    onDelete: (String) -> Boolean,
+) {
+    var editingId by remember { mutableStateOf<String?>(null) }
+    var editText by remember { mutableStateOf("") }
+    var deleteTarget by remember { mutableStateOf<ChatSession?>(null) }
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.fillMaxWidth(0.94f).widthIn(max = 440.dp).glassPanel(RoundedCornerShape(28.dp)).padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("你的对话", color = FuturePalette.Text, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
+                    Text("会话彼此独立保存在本机", color = FuturePalette.Muted, fontSize = 11.sp)
+                }
+                TextButton(onClick = onNew) { FutureGlyph("plus", tint = FuturePalette.VioletBright, size = 18.dp); Spacer(Modifier.width(5.dp)); Text("新建", color = FuturePalette.VioletBright) }
+            }
+            Column(Modifier.height(340.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                sessions.forEach { session ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                            .background(if (session.id == activeSessionId) Color(0x333F3971) else Color(0x171A2030))
+                            .border(1.dp, if (session.id == activeSessionId) Color(0x557D6ED4) else FuturePalette.Edge, RoundedCornerShape(16.dp))
+                            .clickable(enabled = editingId != session.id) { onSelect(session.id) }
+                            .padding(start = 12.dp, end = 5.dp, top = 7.dp, bottom = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (editingId == session.id) {
+                            BasicTextField(
+                                value = editText, onValueChange = { editText = it.take(60) },
+                                modifier = Modifier.weight(1f).padding(vertical = 9.dp),
+                                textStyle = TextStyle(color = FuturePalette.Text, fontSize = 13.sp), singleLine = true,
+                                decorationBox = { inner -> Box { if (editText.isEmpty()) Text("会话名称", color = FuturePalette.Muted); inner() } },
+                            )
+                            TextButton(onClick = { if (onRename(session.id, editText)) editingId = null }, enabled = editText.isNotBlank()) { Text("保存", color = FuturePalette.Cyan, fontSize = 11.sp) }
+                            TextButton(onClick = { editingId = null }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("取消", color = FuturePalette.Muted, fontSize = 11.sp) }
+                        } else {
+                            Column(Modifier.weight(1f).padding(vertical = 7.dp)) {
+                                Text(session.title, color = FuturePalette.Text, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(if (session.id == activeSessionId) "当前会话" else session.updatedAt.toString().take(10), color = FuturePalette.Muted, fontSize = 10.sp)
+                            }
+                            androidx.compose.material3.IconButton(onClick = { editingId = session.id; editText = session.title }) { FutureGlyph("edit", tint = FuturePalette.Muted, size = 17.dp) }
+                            androidx.compose.material3.IconButton(onClick = { deleteTarget = session }) { FutureGlyph("delete", tint = FuturePalette.Danger, size = 17.dp) }
+                        }
+                    }
+                }
+            }
+            TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) { Text("完成", color = FuturePalette.VioletBright) }
+        }
+    }
+    deleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("删除这个会话？") },
+            text = { Text("“${target.title}”及其中的消息会从本机删除，此操作无法撤销。") },
+            confirmButton = { TextButton(onClick = { onDelete(target.id); deleteTarget = null }) { Text("删除", color = FuturePalette.Danger) } },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("取消") } },
+        )
     }
 }
 

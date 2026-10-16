@@ -20,7 +20,7 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.tim.futureai.core.security.SecureKeyStore
 import com.tim.futureai.data.ai.OpenAiCompatProvider
-import com.tim.futureai.data.chat.FileChatHistoryRepository
+import com.tim.futureai.data.chat.FileChatSessionsRepository
 import com.tim.futureai.domain.ai.AiChatConfig
 import com.tim.futureai.feature.chat.ChatScreen
 import com.tim.futureai.feature.chat.ChatUiState
@@ -70,8 +70,11 @@ class MainActivity : ComponentActivity() {
             )
             if (config.isConfigured()) config else null
         })
-        val historyRepository = FileChatHistoryRepository(File(filesDir, "chat-history.json"))
-        val viewModel = ChatViewModel(lifecycleScope, provider, historyRepository = historyRepository)
+        val sessionsRepository = FileChatSessionsRepository(
+            File(filesDir, "chat-sessions.json"),
+            File(filesDir, "chat-history.json"),
+        )
+        val viewModel = ChatViewModel(lifecycleScope, provider, sessionsRepository = sessionsRepository)
 
         setContent {
             MaterialTheme(colorScheme = FutureColors) {
@@ -119,6 +122,10 @@ class MainActivity : ComponentActivity() {
                         onCancel = viewModel::cancel,
                         onRegenerate = viewModel::regenerate,
                         onRetry = viewModel::retry,
+                        onNewSession = viewModel::newSession,
+                        onSelectSession = viewModel::selectSession,
+                        onRenameSession = viewModel::renameSession,
+                        onDeleteSession = viewModel::deleteSession,
                         onExamplePrompt = viewModel::updateInput,
                         onSettingsClick = {
                             settings = settingsManager.load()

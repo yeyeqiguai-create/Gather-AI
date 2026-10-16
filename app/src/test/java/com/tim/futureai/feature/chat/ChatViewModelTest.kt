@@ -3,9 +3,12 @@ package com.tim.futureai.feature.chat
 import com.tim.futureai.core.common.AppError
 import com.tim.futureai.core.common.AppResult
 import com.tim.futureai.domain.ai.AiProvider
-import com.tim.futureai.domain.chat.ChatHistoryLoad
-import com.tim.futureai.domain.chat.ChatHistoryRepository
+import com.tim.futureai.domain.chat.ChatSessionData
+import com.tim.futureai.domain.chat.ChatSessionsLoad
+import com.tim.futureai.domain.chat.ChatSessionsRepository
+import com.tim.futureai.domain.chat.ChatSessionsSnapshot
 import com.tim.futureai.domain.model.ChatMessage
+import com.tim.futureai.domain.model.ChatSession
 import com.tim.futureai.domain.model.MessageRole
 import com.tim.futureai.domain.model.MessageStatus
 import kotlinx.coroutines.CoroutineScope
@@ -25,11 +28,16 @@ import org.junit.Test
  */
 class ChatViewModelTest {
 
-    private class MemoryHistory(var messages: List<ChatMessage> = emptyList()) : ChatHistoryRepository {
+    private class MemoryHistory(messages: List<ChatMessage> = emptyList()) : ChatSessionsRepository {
+        var snapshot = ChatSessionsSnapshot(
+            if (messages.isEmpty()) emptyList() else listOf(ChatSessionData(ChatSession(id = "current", title = "会话"), messages)),
+            if (messages.isEmpty()) null else "current",
+        )
         var failed = false
-        override suspend fun load() = ChatHistoryLoad(messages, failed)
-        override suspend fun save(messages: List<ChatMessage>): Boolean {
-            this.messages = messages
+        val messages: List<ChatMessage> get() = snapshot.sessions.firstOrNull { it.session.id == snapshot.activeSessionId }?.messages.orEmpty()
+        override suspend fun load() = ChatSessionsLoad(snapshot, failed)
+        override suspend fun save(snapshot: ChatSessionsSnapshot): Boolean {
+            this.snapshot = snapshot
             return !failed
         }
     }
@@ -147,9 +155,12 @@ class ChatViewModelTest {
     fun historyRestoresAndPersistsUserAndAssistantMessages() {
         val history = MemoryHistory()
         val first = ChatMessage(sessionId = "current", role = MessageRole.USER, content = "先前的问题")
-        history.messages = listOf(first, ChatMessage(sessionId = "current", role = MessageRole.ASSISTANT, content = "先前的回答"))
+        history.snapshot = ChatSessionsSnapshot(
+            listOf(ChatSessionData(ChatSession(id = "current", title = "会话"), listOf(first, ChatMessage(sessionId = "current", role = MessageRole.ASSISTANT, content = "先前的回答")))),
+            "current",
+        )
         val scope = RecordingScope()
-        val vm = ChatViewModel(scope, FakeProvider(AppResult.success("新回答")), historyRepository = history)
+        val vm = ChatViewModel(scope, FakeProvider(AppResult.success("新回答")), sessionsRepository = history)
         assertEquals(listOf("先前的问题", "先前的回答"), vm.state.messages.map { it.text })
         vm.updateInput("新问题")
         vm.send()
@@ -163,9 +174,37 @@ class ChatViewModelTest {
     @Test
     fun historyReadFailureDoesNotPreventChatStartup() {
         val history = MemoryHistory().apply { failed = true }
-        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("ok")), historyRepository = history)
+        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("ok")), sessionsRepository = history)
         assertFalse(vm.state.isHistoryLoading)
-        assertTrue(vm.state.notice!!.contains("本地聊天记录读取失败"))
+        assertTrue(vm.state.notice!!.contains("本地会话读取失败"))
+    }
+
+    @Test
+    fun sessionsCreateSwitchRenameDeleteAndKeepRequestContextIsolated() {
+        val repository = MemoryHistory()
+        val provider = FakeProvider(AppResult.success("答复"))
+        val vm = ChatViewModel(RecordingScope(), provider, sessionsRepository = repository)
+        val firstId = vm.state.activeSessionId
+        vm.updateInput("只属于会话一")
+        vm.send()
+        vm.newSession()
+        val secondId = vm.state.activeSessionId
+        assertTrue(firstId.isNotBlank() && secondId.isNotBlank() && firstId != secondId)
+        assertTrue(vm.state.messages.isEmpty())
+        vm.updateInput("只属于会话二")
+        vm.send()
+        assertEquals(listOf("只属于会话二"), provider.received.last().map { it.content })
+        assertTrue(vm.renameSession(firstId, "自定义标题"))
+        vm.selectSession(firstId)
+        assertEquals("自定义标题", vm.state.sessionTitle)
+        assertEquals(listOf("只属于会话一", "答复"), vm.state.messages.map { it.text })
+        assertTrue(vm.deleteSession(firstId))
+        assertEquals(secondId, vm.state.activeSessionId)
+        assertEquals(listOf("只属于会话二", "答复"), vm.state.messages.map { it.text })
+        assertTrue(vm.deleteSession(secondId))
+        assertTrue(vm.state.activeSessionId.isNotBlank())
+        assertTrue(vm.state.messages.isEmpty())
+        assertEquals(1, vm.state.sessions.size)
     }
 
     @Test
@@ -175,7 +214,7 @@ class ChatViewModelTest {
             ChatMessage(id = "a", sessionId = "current", role = MessageRole.ASSISTANT, content = "旧回答"),
         ))
         val provider = FakeProvider(AppResult.success("新回答"))
-        val vm = ChatViewModel(RecordingScope(), provider, historyRepository = history)
+        val vm = ChatViewModel(RecordingScope(), provider, sessionsRepository = history)
         vm.regenerate(1)
         assertEquals(listOf("原问题"), provider.received.single().map { it.content })
         assertEquals(listOf("原问题", "新回答"), vm.state.messages.map { it.text })
@@ -188,7 +227,7 @@ class ChatViewModelTest {
             ChatMessage(id = "u", sessionId = "current", role = MessageRole.USER, content = "原问题"),
             ChatMessage(id = "a", sessionId = "current", role = MessageRole.ASSISTANT, content = "旧回答"),
         ))
-        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.failure(AppError.Network("offline"))), historyRepository = history)
+        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.failure(AppError.Network("offline"))), sessionsRepository = history)
         vm.regenerate(1)
         assertEquals("旧回答", vm.state.messages[1].text)
         assertEquals("旧回答", history.messages[1].content)
@@ -213,7 +252,7 @@ class ChatViewModelTest {
                 continuation.invokeOnCancellation { cancelled = true }
             }
         }
-        val vm = ChatViewModel(RecordingScope(), provider, historyRepository = history)
+        val vm = ChatViewModel(RecordingScope(), provider, sessionsRepository = history)
         vm.updateInput("停止我")
         vm.send()
         vm.cancel()
@@ -229,7 +268,7 @@ class ChatViewModelTest {
         val history = MemoryHistory(listOf(
             ChatMessage(sessionId = "current", role = MessageRole.USER, content = "中断的问题", status = MessageStatus.GENERATING),
         ))
-        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("回复")), historyRepository = history)
+        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("回复")), sessionsRepository = history)
         assertEquals(MessageStatus.FAILED, vm.state.messages.single().status)
         vm.retry(0)
         assertEquals(listOf("中断的问题", "回复"), vm.state.messages.map { it.text })
