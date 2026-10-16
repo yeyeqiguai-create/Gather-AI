@@ -8,8 +8,9 @@ import com.tim.futureai.domain.ai.AiProvider
 import com.tim.futureai.domain.model.ChatMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import java.util.concurrent.atomic.AtomicReference
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -33,12 +34,27 @@ class OpenAiCompatProvider(
         if (!config.isConfigured()) {
             return AppResult.failure(AppError.Unknown("AI 服务未配置：缺少 Base URL、模型名或 API Key"))
         }
-        return withContext(Dispatchers.IO) {
-            execute(config, messages)
+        return suspendCancellableCoroutine { continuation ->
+            val connection = AtomicReference<HttpURLConnection?>(null)
+            continuation.invokeOnCancellation { connection.get()?.disconnect() }
+            Dispatchers.IO.dispatch(continuation.context, Runnable {
+                if (!continuation.isActive) return@Runnable
+                val result = execute(config, messages, connection) { continuation.isActive }
+                try {
+                    continuation.resume(result)
+                } catch (e: IllegalStateException) {
+                    if (continuation.isActive) throw e
+                }
+            })
         }
     }
 
-    private fun execute(config: AiChatConfig, messages: List<ChatMessage>): AppResult<String> {
+    private fun execute(
+        config: AiChatConfig,
+        messages: List<ChatMessage>,
+        connection: AtomicReference<HttpURLConnection?>,
+        isActive: () -> Boolean,
+    ): AppResult<String> {
         val conn = try {
             val url = URL("${config.baseUrl.trimEnd('/')}/chat/completions")
             (url.openConnection() as HttpURLConnection).apply {
@@ -51,7 +67,12 @@ class OpenAiCompatProvider(
             }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
-            return AppResult.failure(e.toAppError())
+            return AppResult.failure(sanitizeError(e.toAppError(), config.apiKey))
+        }
+        connection.set(conn)
+        if (!isActive()) {
+            conn.disconnect()
+            return AppResult.failure(AppError.Cancelled)
         }
 
         try {
@@ -69,22 +90,36 @@ class OpenAiCompatProvider(
             }
             // 非 2xx：读错误流并映射
             val errorBody = conn.errorStream?.bufferedReader()?.readText().orEmpty()
-            val message = OpenAiWire.extractErrorMessage(errorBody)
+            val message = sanitize(errorBody.let(OpenAiWire::extractErrorMessage), config.apiKey)
             return AppResult.failure(mapHttpError(code, message))
         } catch (e: CancellationException) {
             throw e
         } catch (e: OpenAiWire.ResponseParseException) {
             return AppResult.failure(AppError.Parse(e.message, e))
         } catch (e: IOException) {
-            return AppResult.failure(AppError.Network(e.message, e))
+            return AppResult.failure(AppError.Network(sanitize(e.message.orEmpty(), config.apiKey), e))
         } catch (e: TimeoutException) {
             return AppResult.failure(AppError.Network("Request timed out", e))
         } catch (e: Exception) {
-            return AppResult.failure(AppError.Unknown(e.message ?: "Unexpected error", e))
+            return AppResult.failure(AppError.Unknown(sanitize(e.message ?: "Unexpected error", config.apiKey), e))
         } finally {
             conn.disconnect()
+            connection.compareAndSet(conn, null)
         }
     }
+
+    private fun sanitizeError(error: AppError, apiKey: String): AppError = when (error) {
+        is AppError.Network -> error.copy(message = sanitize(error.message.orEmpty(), apiKey))
+        is AppError.Auth -> error.copy(message = sanitize(error.message.orEmpty(), apiKey))
+        is AppError.RateLimited -> error.copy(message = sanitize(error.message.orEmpty(), apiKey))
+        is AppError.Server -> error.copy(message = sanitize(error.message.orEmpty(), apiKey))
+        is AppError.Parse -> error.copy(message = sanitize(error.message.orEmpty(), apiKey))
+        is AppError.Unknown -> error.copy(message = sanitize(error.message.orEmpty(), apiKey))
+        AppError.Cancelled -> error
+    }
+
+    private fun sanitize(message: String, apiKey: String): String =
+        if (apiKey.isBlank()) message else message.replace(apiKey, "[redacted]")
 
     companion object {
         /** HTTP 状态码 → [AppError] 的统一映射（独立函数，便于测试）。 */

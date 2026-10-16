@@ -24,7 +24,6 @@ import com.tim.futureai.domain.ai.AiChatConfig
 import com.tim.futureai.feature.chat.ChatScreen
 import com.tim.futureai.feature.chat.ChatUiState
 import com.tim.futureai.feature.chat.ChatViewModel
-import com.tim.futureai.feature.settings.AiSettings
 import com.tim.futureai.feature.settings.AiSettingsManager
 import com.tim.futureai.feature.settings.AiSettingsScreen
 import com.tim.futureai.feature.settings.SettingsSaveResult
