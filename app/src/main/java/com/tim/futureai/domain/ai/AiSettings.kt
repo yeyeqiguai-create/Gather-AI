@@ -18,6 +18,8 @@ data class AiSettings(
     val capabilityEvidence: CapabilityEvidence = CapabilityEvidence.UNKNOWN,
     val preference: Int = 0,
     val providerProtocol: ProviderProtocol = ProviderProtocol.OPENAI_COMPATIBLE,
+    val lastConnectionTestResult: String? = null,
+    val lastConnectionTestAt: String? = null,
 ) {
     val isConfigured: Boolean
         get() = baseUrl.isNotBlank() && model.isNotBlank() && (apiKey.isNotBlank() || hasSavedApiKey)

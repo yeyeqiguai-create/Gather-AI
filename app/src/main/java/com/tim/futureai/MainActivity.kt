@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.layout.heightIn
@@ -33,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -62,12 +62,19 @@ import com.tim.futureai.feature.chat.ChatScreen
 import com.tim.futureai.feature.chat.ChatUiState
 import com.tim.futureai.feature.chat.ChatViewModel
 import com.tim.futureai.data.settings.AiSettingsManager
+import com.tim.futureai.data.settings.AppPreferencesManager
 import com.tim.futureai.feature.settings.AiSettingsScreen
+import com.tim.futureai.feature.settings.FullSettingsCenter
+import com.tim.futureai.feature.settings.UsageCard
+import com.tim.futureai.feature.update.UpdateSection
+import com.tim.futureai.domain.settings.AppPreferences
+import com.tim.futureai.domain.settings.SettingsSection
 import com.tim.futureai.domain.usage.UsageSnapshot
 import com.tim.futureai.platform.files.AttachmentImporter
 import com.tim.futureai.platform.speech.SpeechController
 import com.tim.futureai.platform.speech.SpeechRecognitionMessages
 import com.tim.futureai.ui.theme.FuturePalette
+import com.tim.futureai.ui.theme.GatherAITheme
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
@@ -75,22 +82,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
-private val FutureColors = darkColorScheme(
-    primary = FuturePalette.Violet,
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFF43377D),
-    onPrimaryContainer = FuturePalette.Text,
-    background = FuturePalette.Night,
-    onBackground = FuturePalette.Text,
-    surface = Color(0xFF141827),
-    onSurface = FuturePalette.Text,
-    surfaceVariant = Color(0xFF20253A),
-    onSurfaceVariant = FuturePalette.Muted,
-    error = FuturePalette.Danger,
-    errorContainer = Color(0xFF492638),
-    onErrorContainer = FuturePalette.Text,
-)
 
 private const val UPDATE_INSTALL_PREFS = "update_install_flow"
 private const val KEY_UPDATE_APK_PATH = "apk_path"
@@ -128,6 +119,7 @@ class MainActivity : ComponentActivity() {
         // 组装依赖：安全存储 → 配置读取 → Provider → ViewModel。
         val keyStore = SecureKeyStore(this)
         val settingsManager = AiSettingsManager(keyStore)
+        val appPreferencesManager = AppPreferencesManager(keyStore)
         val providerRegistry = AiProviderRegistry()
         val provider = providerRegistry.create(ProviderProtocol.OPENAI_COMPATIBLE) { settingsManager.configFor(null) }
         val sessionsRepository = FileChatSessionsRepository(
@@ -147,18 +139,35 @@ class MainActivity : ComponentActivity() {
                 val protocol = settingsManager.loadProfile(profileId)?.providerProtocol ?: ProviderProtocol.OPENAI_COMPATIBLE
                 providerRegistry.create(protocol) { settingsManager.configFor(profileId, modelId) }
             },
-            defaultModelProfileId = { settingsManager.load().takeIf { it.isAvailableForRouting }?.id },
+            defaultModelProfileId = {
+                val preferences = appPreferencesManager.load()
+                if (preferences.usesAutomaticModelSelection()) {
+                    com.tim.futureai.feature.chat.ChatModelChoice.AUTO_ID
+                } else settingsManager.load().takeIf { it.isAvailableForRouting }?.id
+            },
             usageRepository = usageRepository,
         )
         viewModel.setModelChoices(settingsManager.profiles())
+        viewModel.setHistoryLimit(appPreferencesManager.load().historyLimit)
         setContent {
-            MaterialTheme(colorScheme = FutureColors) {
+            var appPreferences by remember { mutableStateOf(appPreferencesManager.load()) }
+            GatherAITheme(appPreferences.themeMode, appPreferences.fontScale) {
+                val lightSystemBars = appPreferences.themeMode == com.tim.futureai.domain.settings.ThemeMode.LIGHT ||
+                    (appPreferences.themeMode == com.tim.futureai.domain.settings.ThemeMode.SYSTEM && !androidx.compose.foundation.isSystemInDarkTheme())
+                SideEffect {
+                    WindowCompat.getInsetsController(window, window.decorView).apply {
+                        isAppearanceLightStatusBars = lightSystemBars
+                        isAppearanceLightNavigationBars = lightSystemBars
+                    }
+                }
                 val initialSettings = remember { settingsManager.load() }
                 var profiles by remember { mutableStateOf(settingsManager.profiles()) }
                 var usage by remember { mutableStateOf(UsageSnapshot()) }
                 var uiState by remember { mutableStateOf<ChatUiState>(ChatUiState()) }
                 var showSettings by remember { mutableStateOf(false) }
                 var settings by remember { mutableStateOf(initialSettings) }
+                var settingsOperationMessage by remember { mutableStateOf<String?>(null) }
+                var cacheBytes by remember { mutableStateOf(0L) }
                 var isAiConfigured by remember { mutableStateOf(initialSettings.isAvailableForRouting) }
                 var settingsMessage by remember { mutableStateOf<String?>(null) }
                 var settingsMessageIsError by remember { mutableStateOf(false) }
@@ -188,11 +197,12 @@ class MainActivity : ComponentActivity() {
                 val startupUpdateCheck = remember { StartupUpdateCheck() }
                 var speakingMessageKey by remember { mutableStateOf<String?>(null) }
                 val composeScope = rememberCoroutineScope()
-                val screenTransitionMillis = remember {
+                val systemAnimationsEnabled = remember {
                     val motionEnabled = if (Build.VERSION.SDK_INT >= 26) ValueAnimator.areAnimatorsEnabled()
                     else Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f
-                    if (motionEnabled) 180 else 0
+                    motionEnabled
                 }
+                val screenTransitionMillis = if (appPreferences.animationsEnabled && systemAnimationsEnabled) 180 else 0
                 val speechController = remember {
                     SpeechController(applicationContext,
                         onSpeakingChanged = { key -> composeScope.launch(Dispatchers.Main) { speakingMessageKey = key } },
@@ -207,6 +217,11 @@ class MainActivity : ComponentActivity() {
                     } else {
                         val errorCode = result.data?.getIntExtra("android.speech.extra.ERROR", -1)?.takeIf { it >= 0 }
                         viewModel.showNotice(SpeechRecognitionMessages.failure(errorCode))
+                    }
+                }
+                LaunchedEffect(showSettings) {
+                    if (showSettings) cacheBytes = withContext(Dispatchers.IO) {
+                        cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
                     }
                 }
                 var pendingExport by remember { mutableStateOf("") }
@@ -412,7 +427,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 LaunchedEffect(Unit) {
-                    if (installPhase == INSTALL_PHASE_NONE && startupUpdateCheck.shouldCheck()) checkForUpdates()
+                    if (installPhase == INSTALL_PHASE_NONE && appPreferences.startupUpdateCheck && startupUpdateCheck.shouldCheck()) checkForUpdates()
                     when (installPhase) {
                         INSTALL_PHASE_AUTHORIZATION -> {
                             showSettings = true
@@ -496,6 +511,123 @@ class MainActivity : ComponentActivity() {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Crossfade(targetState = showSettings, animationSpec = tween(screenTransitionMillis), label = "main-settings-transition") { showingSettings ->
                     if (showingSettings) {
+                        FullSettingsCenter(
+                            preferences = appPreferences,
+                            onPreferencesChanged = { next ->
+                                val normalized = next.normalized()
+                                if (appPreferencesManager.save(normalized)) {
+                                    appPreferences = normalized
+                                    viewModel.setHistoryLimit(normalized.historyLimit)
+                                    viewModel.setModelChoices(profiles)
+                                    settingsOperationMessage = null
+                                } else settingsOperationMessage = "设置保存失败，现有设置保持不变"
+                            },
+                            versionName = packageManager.getPackageInfo(packageName, 0).versionName.orEmpty(),
+                            versionCode = if (Build.VERSION.SDK_INT >= 28) packageManager.getPackageInfo(packageName, 0).longVersionCode.toInt() else packageManager.getPackageInfo(packageName, 0).versionCode,
+                            buildInfo = "Debug · Android ${Build.VERSION.SDK_INT}",
+                            defaultModel = if (settings.isConfigured) "${settings.name} · ${settings.model}" else "未配置",
+                            updateStatus = when {
+                                updateChecking -> "正在检查更新"
+                                downloadProgress != null && downloadProgress!! < 100 -> "正在下载 $downloadProgress%"
+                                downloadProgress == 100 -> "APK 已校验，等待安装"
+                                updateResult is UpdateCheckResult.Available -> "发现 ${(updateResult as UpdateCheckResult.Available).release.versionName}"
+                                updateResult is UpdateCheckResult.UpToDate -> "已是最新版本"
+                                updateResult is UpdateCheckResult.NoInstallableApk -> "Release 缺少可安装 APK"
+                                updateResult is UpdateCheckResult.InvalidMetadata -> "版本元数据无效"
+                                updateResult is UpdateCheckResult.Failed -> "检查失败，可重试"
+                                else -> "尚未检查"
+                            },
+                            providerCount = profiles.size,
+                            enabledProviderCount = profiles.count { it.enabled },
+                            profiles = profiles,
+                            usage = usage,
+                            sessionCount = uiState.sessions.size,
+                            historyBytes = File(filesDir, "chat-sessions.json").takeIf { it.exists() }?.length()
+                                ?: File(filesDir, "chat-history.json").length(),
+                            cacheBytes = cacheBytes,
+                            migrationStatus = settingsManager.migrationStatus(),
+                            voiceInputAvailable = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).resolveActivity(packageManager) != null,
+                            ttsSettingsAvailable = Intent("com.android.settings.TTS_SETTINGS").resolveActivity(packageManager) != null,
+                            operationMessage = settingsOperationMessage,
+                            latestErrorType = usage.records.lastOrNull()?.errorType,
+                            animationsEnabledBySystem = systemAnimationsEnabled,
+                            onResetPreferences = {
+                                if (appPreferencesManager.reset()) {
+                                    appPreferences = appPreferencesManager.load()
+                                    viewModel.setHistoryLimit(appPreferences.historyLimit)
+                                    viewModel.setModelChoices(profiles)
+                                    settingsOperationMessage = "偏好已重置；Provider、聊天历史与用量保留"
+                                } else settingsOperationMessage = "重置失败，现有设置保持不变"
+                            },
+                            onClearHistory = {
+                                settingsOperationMessage = "正在清除聊天历史…"
+                                val started = viewModel.clearAllHistory { saved ->
+                                    composeScope.launch {
+                                        if (!saved) {
+                                            settingsOperationMessage = "聊天历史写入失败；请检查存储空间后重试"
+                                            return@launch
+                                        }
+                                        val attachmentsRemoved = withContext(Dispatchers.IO) {
+                                            val directory = File(filesDir, "attachments")
+                                            !directory.exists() || directory.deleteRecursively()
+                                        }
+                                        settingsOperationMessage = if (attachmentsRemoved) "聊天历史与引用附件已清除" else "聊天记录已清除，但部分附件文件清理失败"
+                                    }
+                                }
+                                if (!started) settingsOperationMessage = "会话仍在加载，稍后重试"
+                            },
+                            onClearUsage = {
+                                composeScope.launch {
+                                    val result = runCatching { usageRepository.clear(); usage = usageRepository.load() }
+                                    settingsOperationMessage = if (result.isSuccess) "用量统计已清除" else "清理失败：无法更新统计文件"
+                                }
+                            },
+                            onRefreshUsage = {
+                                composeScope.launch {
+                                    val result = runCatching { usage = usageRepository.load() }
+                                    settingsOperationMessage = if (result.isSuccess) "用量统计已刷新" else "读取用量统计失败"
+                                }
+                            },
+                            onClearCache = {
+                                composeScope.launch {
+                                    val result = withContext(Dispatchers.IO) {
+                                        val children = cacheDir.listFiles().orEmpty()
+                                        children.all { !it.exists() || it.deleteRecursively() }
+                                    }
+                                    cacheBytes = withContext(Dispatchers.IO) { cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() } }
+                                    settingsOperationMessage = if (result) "临时缓存已清理" else "部分缓存文件清理失败"
+                                }
+                            },
+                            onCopyVersion = {
+                                val versionInfo = packageManager.getPackageInfo(packageName, 0)
+                                val installedCode = if (Build.VERSION.SDK_INT >= 28) versionInfo.longVersionCode else versionInfo.versionCode.toLong()
+                                val text = "Gather AI ${versionInfo.versionName} (versionCode $installedCode) · debug"
+                                (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(ClipData.newPlainText("版本信息", text))
+                                settingsOperationMessage = "版本信息已复制"
+                            },
+                            onCopyDiagnostics = {
+                                val installedInfo = packageManager.getPackageInfo(packageName, 0)
+                                val installedCode = if (Build.VERSION.SDK_INT >= 28) installedInfo.longVersionCode else installedInfo.versionCode.toLong()
+                                val text = "Gather AI ${installedInfo.versionName}; versionCode=$installedCode; build=debug; providers=${profiles.size}; enabled=${profiles.count { it.enabled }}; sessions=${uiState.sessions.size}; update=${when (updateResult) { is UpdateCheckResult.Available -> "available"; UpdateCheckResult.UpToDate -> "up-to-date"; is UpdateCheckResult.Failed -> "failed"; else -> "unknown" }}"
+                                (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(ClipData.newPlainText("Gather AI diagnostics", text))
+                                settingsOperationMessage = "脱敏诊断信息已复制（不含密钥、Base URL 或请求正文）"
+                            },
+                            onOpenGitHub = { runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/yeyeqiguai-create/Gather-AI"))) } },
+                            onRequestVoiceInput = {
+                                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
+                                    putExtra(RecognizerIntent.EXTRA_PROMPT, "请说出要发送的内容")
+                                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                                }
+                                runCatching { speechInput.launch(intent) }.onFailure { settingsOperationMessage = "语音服务启动失败；请直接使用文字输入" }
+                            },
+                            onOpenTtsSettings = {
+                                runCatching { startActivity(Intent("com.android.settings.TTS_SETTINGS")) }
+                                    .onFailure { settingsOperationMessage = "系统未能打开 TTS 设置；当前仍使用系统默认引擎" }
+                            },
+                            onBack = { showSettings = false },
+                            providerContent = { providerBack ->
                         AiSettingsScreen(
                             settings = settings,
                             message = settingsMessage,
@@ -520,7 +652,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             },
-                            onBack = { showSettings = false },
+                            onBack = providerBack,
                             messageIsError = settingsMessageIsError,
                             updateResult = updateResult,
                             updateChecking = updateChecking,
@@ -579,10 +711,14 @@ class MainActivity : ComponentActivity() {
                                     when (val result = providerRegistry.create(settings.providerProtocol) { testConfig }.testConnection()) {
                                         is com.tim.futureai.core.common.AppResult.Success -> {
                                             settingsMessage = "连接成功，服务商可访问"
+                                            settingsManager.recordConnectionTest(settings.id, settingsMessage.orEmpty())
+                                            profiles = settingsManager.profiles()
                                             settingsMessageIsError = false
                                         }
                                         is com.tim.futureai.core.common.AppResult.Failure -> {
                                             settingsMessage = ChatViewModel.errorToUserMessage(result.error)
+                                            settingsManager.recordConnectionTest(settings.id, settingsMessage.orEmpty())
+                                            profiles = settingsManager.profiles()
                                             settingsMessageIsError = true
                                         }
                                     }
@@ -590,6 +726,26 @@ class MainActivity : ComponentActivity() {
                             },
                             usage = usage,
                             modifier = Modifier.fillMaxSize(),
+                            includeUsageAndUpdates = false,
+                            sessionReferences = uiState.sessions.mapNotNull { it.modelProfileId }.groupingBy { it }.eachCount().toMutableMap().apply {
+                                val activeProfileId = settingsManager.load().id
+                                this[activeProfileId] = (this[activeProfileId] ?: 0) + uiState.sessions.count { it.modelProfileId == null }
+                            },
+                        )
+                            },
+                            usageContent = { filteredUsage ->
+                                UsageCard(filteredUsage, profiles, uiState.sessions.associate { it.id to it.title })
+                            },
+                            updatesContent = {
+                                UpdateSection(
+                                    result = updateResult, checking = updateChecking, message = updateMessage,
+                                    downloadProgress = downloadProgress, onCheck = checkForUpdates,
+                                    onDownload = { (updateResult as? UpdateCheckResult.Available)?.let { startUpdateDownload(it.release, installWhenReady = false) } },
+                                    onCancel = { downloadJob?.cancel() }, onInstall = installDownloadedApk,
+                                    installButtonText = if (installAuthorizationRequired) "打开安装授权" else "系统确认安装",
+                                    onViewNotes = { (updateResult as? UpdateCheckResult.Available)?.let { updatePrompt = UpdatePromptState(it.release, showFullNotes = true) } },
+                                )
+                            },
                         )
                     } else ChatScreen(
                         state = uiState,
@@ -617,19 +773,25 @@ class MainActivity : ComponentActivity() {
                             viewModel.removeAttachment(id)
                         },
                         onListen = {
-                            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
-                                putExtra(RecognizerIntent.EXTRA_PROMPT, "请说出要发送的内容")
-                                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                            if (!appPreferences.voiceInputEnabled) {
+                                viewModel.showNotice("语音输入已在设置中关闭")
+                            } else {
+                                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
+                                    putExtra(RecognizerIntent.EXTRA_PROMPT, "请说出要发送的内容")
+                                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                                }
+                                if (intent.resolveActivity(packageManager) == null) {
+                                    viewModel.showNotice("此设备没有可用的语音识别服务，请直接输入文字")
+                                } else runCatching { speechInput.launch(intent) }
+                                    .onFailure { viewModel.showNotice("无法启动语音识别，请检查系统语音服务") }
                             }
-                            if (intent.resolveActivity(packageManager) == null) {
-                                viewModel.showNotice("此设备没有可用的语音识别服务，请直接输入文字")
-                            } else runCatching { speechInput.launch(intent) }
-                                .onFailure { viewModel.showNotice("无法启动语音识别，请检查系统语音服务") }
                         },
                         onSpeak = { key, text ->
-                            if (speakingMessageKey == key) speechController.stop() else speechController.speak(key, text)
+                            if (speakingMessageKey == key) speechController.stop()
+                            else if (!appPreferences.textToSpeechEnabled) viewModel.showNotice("文字转语音已在设置中关闭")
+                            else speechController.speak(key, text)
                         },
                         speakingMessageKey = speakingMessageKey,
                         onEditMessage = viewModel::editUserMessage,
@@ -665,6 +827,9 @@ class MainActivity : ComponentActivity() {
                             showSettings = true
                         },
                         isAiConfigured = isAiConfigured,
+                        showModelNames = appPreferences.showModelNames,
+                        showRoutingReason = appPreferences.showRoutingReason,
+                        compactSpacing = appPreferences.compactChat,
                         modifier = Modifier.fillMaxSize(),
                     )
                     }

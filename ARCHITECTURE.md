@@ -70,3 +70,10 @@ feature ──▶ domain ◀── data
 - `UsageRepository` 按实际 Provider/模型保存耗时、错误类别和真实 Token 数。费用仅按模型 ID 精确匹配的用户单价估算；缺少真实 Token 或对应单价时保留为未知。
 - `platform.speech.SpeechController` 封装 Android TTS；语音输入交给系统识别 Intent，未安装识别服务或权限被拒绝时回退为明确提示。
 - 用户消息支持编辑（截断后续依赖回复）、分享；整段会话通过 Android 文件保存器导出。
+
+## 全量设置中心
+
+- `domain.settings.AppPreferences` 是通用偏好与设置分类注册表；`SettingsSearchRegistry` 注册真实可用设置项与动态 Provider/模型条目，搜索结果直接导航到所属分类。
+- `data.settings.AppPreferencesManager` 经 `SecureValueStore` 加密保存主题、聊天显示、路由默认值、语音、启动更新和历史保留配置；UI 仅发出事件，由宿主协调数据与平台操作。
+- Light/Dark/System 共享动态调色板；字体比例通过 Compose `Density` 生效，紧凑间距仅调整消息列表布局。
+- `AiSettingsManager` 持久化脱敏连接测试状态。用量记录新写入会话 ID 并按 Provider/模型/会话聚合，旧格式缺省字段继续读取并标为未知。设置页将历史、用量、cache 与设置偏好清理分开；cache 不包含引用附件或已校验更新 APK。

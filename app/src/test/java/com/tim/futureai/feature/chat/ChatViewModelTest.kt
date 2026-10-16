@@ -711,4 +711,34 @@ class ChatViewModelTest {
         assertTrue(ChatViewModel.errorToUserMessage(AppError.Unknown("sensitive")).contains("请求失败"))
         assertFalse(ChatViewModel.errorToUserMessage(AppError.Http("test-key-do-not-log", 400)).contains("test-key-do-not-log"))
     }
+
+    @Test
+    fun historyLimitRetainsActiveSessionAndClearAllCreatesFreshSession() {
+        val history = MemoryHistory()
+        val old = ChatSession(id = "old", title = "最旧")
+        val middle = ChatSession(id = "middle", title = "中间")
+        val newest = ChatSession(id = "newest", title = "最新")
+        history.snapshot = ChatSessionsSnapshot(
+            listOf(ChatSessionData(old, emptyList()), ChatSessionData(middle, emptyList()), ChatSessionData(newest, emptyList())),
+            activeSessionId = "old",
+        )
+        val vm = ChatViewModel(scope, FakeProvider(AppResult.Success("ok")), sessionsRepository = history, defaultModelProfileId = { "global" })
+        vm.setHistoryLimit(2)
+        awaitSettled(vm)
+        assertEquals(2, vm.state.sessions.size)
+        assertEquals("old", vm.state.activeSessionId)
+        assertTrue(vm.state.sessions.any { it.id == "old" })
+        assertTrue(vm.clearAllHistory())
+        assertEquals(1, vm.state.sessions.size)
+        assertEquals("新对话", vm.state.sessionTitle)
+        assertEquals(1, history.snapshot.sessions.size)
+    }
+
+    @Test
+    fun newSessionInheritsCurrentGlobalModelWithoutPersistingItAsSessionOverride() {
+        val vm = ChatViewModel(scope, FakeProvider(AppResult.Success("ok")), defaultModelProfileId = { "global-provider" })
+        vm.newSession()
+        assertEquals("global-provider", vm.state.selectedModelId)
+        assertNull(vm.state.sessions.first().modelProfileId)
+    }
 }

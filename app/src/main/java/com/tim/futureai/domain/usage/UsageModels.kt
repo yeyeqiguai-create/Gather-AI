@@ -2,6 +2,9 @@ package com.tim.futureai.domain.usage
 
 import com.tim.futureai.domain.ai.AiTokenUsage
 import java.time.Instant
+import java.time.Duration
+
+enum class UsageRange { LAST_7_DAYS, LAST_30_DAYS, ALL }
 
 data class UsageRecord(
     val profileId: String?,
@@ -12,6 +15,8 @@ data class UsageRecord(
     val promptTokens: Int? = null,
     val completionTokens: Int? = null,
     val recordedAt: String = Instant.now().toString(),
+    /** Null for legacy records written before session attribution was added. */
+    val sessionId: String? = null,
 ) {
     val tokenUsage: AiTokenUsage? get() = if (promptTokens != null && completionTokens != null) AiTokenUsage(promptTokens, completionTokens) else null
 
@@ -25,6 +30,18 @@ data class UsageRecord(
 }
 
 data class UsageSnapshot(val records: List<UsageRecord> = emptyList()) {
+    fun within(range: UsageRange, now: Instant = Instant.now()): UsageSnapshot {
+        val duration = when (range) {
+            UsageRange.LAST_7_DAYS -> Duration.ofDays(7)
+            UsageRange.LAST_30_DAYS -> Duration.ofDays(30)
+            UsageRange.ALL -> return this
+        }
+        val cutoff = now.minus(duration)
+        return UsageSnapshot(records.filter { record ->
+            runCatching { !Instant.parse(record.recordedAt).isBefore(cutoff) }.getOrDefault(false)
+        })
+    }
+
     val requestCount: Int get() = records.size
     val errorCount: Int get() = records.count { it.errorType != null }
     val knownTokenCount: Int get() = records.count { it.tokenUsage != null }
@@ -32,6 +49,21 @@ data class UsageSnapshot(val records: List<UsageRecord> = emptyList()) {
     val promptTokens: Long get() = records.sumOf { it.promptTokens?.toLong() ?: 0L }
     val completionTokens: Long get() = records.sumOf { it.completionTokens?.toLong() ?: 0L }
     val totalDurationMs: Long get() = records.sumOf { it.durationMs.coerceAtLeast(0) }
+
+    fun bySession(): List<SessionUsage> = records.groupBy { it.sessionId }
+        .map { (sessionId, grouped) ->
+            SessionUsage(
+                sessionId = sessionId,
+                requestCount = grouped.size,
+                errorCount = grouped.count { it.errorType != null },
+                knownUsageCount = grouped.count { it.tokenUsage != null },
+                promptTokens = grouped.sumOf { it.promptTokens?.toLong() ?: 0L },
+                completionTokens = grouped.sumOf { it.completionTokens?.toLong() ?: 0L },
+                totalDurationMs = grouped.sumOf { it.durationMs.coerceAtLeast(0) },
+                lastRequestAt = grouped.maxOfOrNull { it.recordedAt }.orEmpty(),
+            )
+        }
+        .sortedByDescending { it.lastRequestAt }
 
     fun byProviderAndModel(prices: Map<UsagePriceKey, ModelUsagePrice> = emptyMap()): List<ProviderModelUsage> = records.groupBy { it.providerName to it.model }
         .map { (key, grouped) ->
@@ -48,6 +80,17 @@ data class UsageSnapshot(val records: List<UsageRecord> = emptyList()) {
         byProviderAndModel(prices).takeIf { groups -> groups.sumOf { it.requestCount } == requestCount && groups.all { it.estimatedUsd != null } }
             ?.sumOf { it.estimatedUsd!! }
 }
+
+data class SessionUsage(
+    val sessionId: String?,
+    val requestCount: Int,
+    val errorCount: Int,
+    val knownUsageCount: Int,
+    val promptTokens: Long,
+    val completionTokens: Long,
+    val totalDurationMs: Long,
+    val lastRequestAt: String,
+)
 
 data class UsagePriceKey(val profileId: String, val model: String)
 
@@ -85,4 +128,5 @@ data class ProviderModelUsage(
 interface UsageRepository {
     suspend fun load(): UsageSnapshot
     suspend fun append(record: UsageRecord)
+    suspend fun clear() {}
 }

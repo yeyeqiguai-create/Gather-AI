@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -21,19 +22,37 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+data class FutureColorTokens(
+    val night: Color, val deepBlue: Color, val panel: Color, val panelSoft: Color, val edge: Color,
+    val violet: Color, val violetBright: Color, val cyan: Color, val text: Color, val muted: Color,
+    val success: Color, val danger: Color, val backdropEnd: Color,
+)
+
+val DarkFutureColors = FutureColorTokens(
+    Color(0xFF080A12), Color(0xFF10152A), Color(0xCC171C2D), Color(0x991C2236), Color(0x36DDE3FF),
+    Color(0xFF9B7BFF), Color(0xFFB7A1FF), Color(0xFF7BD9F5), Color(0xFFF4F2FF), Color(0xFFA6AAC0),
+    Color(0xFF8AE0C2), Color(0xFFFF9BAF), Color(0xFF090B13),
+)
+val LightFutureColors = FutureColorTokens(
+    Color(0xFFF5F6FC), Color(0xFFE9ECF7), Color(0xF7FFFFFF), Color(0xEFFFFFFF), Color(0x33484A60),
+    Color(0xFF6549C7), Color(0xFF5338B4), Color(0xFF087B9B), Color(0xFF171A29), Color(0xFF575D70),
+    Color(0xFF16785B), Color(0xFFB32645), Color(0xFFF1F3FA),
+)
+val LocalFutureColors = staticCompositionLocalOf { DarkFutureColors }
+
 object FuturePalette {
-    val Night = Color(0xFF080A12)
-    val DeepBlue = Color(0xFF10152A)
-    val Panel = Color(0xCC171C2D)
-    val PanelSoft = Color(0x991C2236)
-    val Edge = Color(0x36DDE3FF)
-    val Violet = Color(0xFF9B7BFF)
-    val VioletBright = Color(0xFFB7A1FF)
-    val Cyan = Color(0xFF7BD9F5)
-    val Text = Color(0xFFF4F2FF)
-    val Muted = Color(0xFFA6AAC0)
-    val Success = Color(0xFF8AE0C2)
-    val Danger = Color(0xFFFF9BAF)
+    val Night: Color @Composable get() = LocalFutureColors.current.night
+    val DeepBlue: Color @Composable get() = LocalFutureColors.current.deepBlue
+    val Panel: Color @Composable get() = LocalFutureColors.current.panel
+    val PanelSoft: Color @Composable get() = LocalFutureColors.current.panelSoft
+    val Edge: Color @Composable get() = LocalFutureColors.current.edge
+    val Violet: Color @Composable get() = LocalFutureColors.current.violet
+    val VioletBright: Color @Composable get() = LocalFutureColors.current.violetBright
+    val Cyan: Color @Composable get() = LocalFutureColors.current.cyan
+    val Text: Color @Composable get() = LocalFutureColors.current.text
+    val Muted: Color @Composable get() = LocalFutureColors.current.muted
+    val Success: Color @Composable get() = LocalFutureColors.current.success
+    val Danger: Color @Composable get() = LocalFutureColors.current.danger
 }
 
 @Composable
@@ -45,7 +64,7 @@ fun FutureBackdrop(modifier: Modifier = Modifier, content: @Composable () -> Uni
                 Brush.verticalGradient(
                     0f to FuturePalette.DeepBlue,
                     0.48f to FuturePalette.Night,
-                    1f to Color(0xFF090B13),
+                    1f to LocalFutureColors.current.backdropEnd,
                 ),
             ),
     ) {
@@ -73,11 +92,12 @@ fun FutureBackdrop(modifier: Modifier = Modifier, content: @Composable () -> Uni
     }
 }
 
-fun Modifier.glassPanel(shape: RoundedCornerShape = RoundedCornerShape(24.dp)): Modifier =
-    background(
-        Brush.verticalGradient(listOf(Color(0xD91B2032), Color(0xB3121728))),
-        shape,
-    ).border(1.dp, Brush.verticalGradient(listOf(Color(0x55F1EEFF), Color(0x14B5C2FF))), shape)
+@Composable
+fun Modifier.glassPanel(shape: RoundedCornerShape = RoundedCornerShape(24.dp)): Modifier {
+    val colors = LocalFutureColors.current
+    return background(Brush.verticalGradient(listOf(colors.panel, colors.panelSoft)), shape)
+        .border(1.dp, Brush.verticalGradient(listOf(colors.edge, colors.edge.copy(alpha = 0.25f))), shape)
+}
 
 @Composable
 fun FutureGlyph(

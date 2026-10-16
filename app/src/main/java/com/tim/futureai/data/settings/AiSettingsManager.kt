@@ -10,10 +10,19 @@ import com.tim.futureai.domain.ai.CapabilityEvidence
 import com.tim.futureai.domain.ai.ModelTask
 import com.tim.futureai.domain.ai.ProviderProtocol
 import com.tim.futureai.domain.ai.SettingsSaveResult
+import java.time.Instant
 
 /** Stores all provider records as one SecureKeyStore-encrypted value; legacy single-provider keys migrate on first save. */
 class AiSettingsManager(private val store: SecureValueStore) {
     fun profiles(): List<AiSettings> = readStoredProfiles().map { it.copy(apiKey = "", hasSavedApiKey = it.apiKey.isNotBlank()) }
+
+    fun migrationStatus(): String {
+        if (store.contains(PROFILES_KEY)) return if (profileBundleReadable()) "新版加密 Provider 配置包可读取" else "加密 Provider 配置无法解析；已阻止覆盖以保护原数据"
+        if (store.contains(SecureKeyStore.KEY_BASE_URL) || store.contains(SecureKeyStore.KEY_MODEL) || store.contains(SecureKeyStore.KEY_API)) {
+            return "检测到旧版单 Provider 配置；首次保存时迁移"
+        }
+        return "无待迁移的旧版 Provider 配置"
+    }
 
     fun load(): AiSettings {
         val records = readStoredProfiles()
@@ -43,7 +52,19 @@ class AiSettingsManager(private val store: SecureValueStore) {
         return store.putString(ACTIVE_PROFILE_KEY, id)
     }
 
+    /** Stores a short, sanitized connection result with the encrypted provider bundle. */
+    fun recordConnectionTest(id: String, result: String): Boolean {
+        if (!profileBundleReadable()) return false
+        val records = readStoredProfiles()
+        if (records.none { it.id == id }) return false
+        val updated = records.map { profile ->
+            if (profile.id == id) profile.copy(lastConnectionTestResult = result.trim().take(180), lastConnectionTestAt = Instant.now().toString()) else profile
+        }
+        return store.putString(PROFILES_KEY, encodeProfiles(updated))
+    }
+
     fun save(settings: AiSettings): SettingsSaveResult {
+        if (!profileBundleReadable()) return SettingsSaveResult.Invalid("现有加密 Provider 配置无法解析，已阻止覆盖以保护原密文")
         val normalized = settings.copy(
             id = settings.id.trim().ifBlank { AiSettings.DEFAULT_PROFILE_ID },
             name = settings.name.trim().take(48).ifBlank { "AI 配置" },
@@ -121,6 +142,8 @@ class AiSettingsManager(private val store: SecureValueStore) {
                         providerProtocol = fields["providerProtocol"]?.asString()?.let {
                             runCatching { ProviderProtocol.valueOf(it) }.getOrNull()
                         } ?: ProviderProtocol.OPENAI_COMPATIBLE,
+                        lastConnectionTestResult = fields["lastConnectionTestResult"]?.asString(),
+                        lastConnectionTestAt = fields["lastConnectionTestAt"]?.asString(),
                     )
                 }
             }
@@ -130,6 +153,14 @@ class AiSettingsManager(private val store: SecureValueStore) {
         val apiKey = store.getString(SecureKeyStore.KEY_API).orEmpty()
         return if (baseUrl.isBlank() && model.isBlank() && apiKey.isBlank()) emptyList()
         else listOf(AiSettings(baseUrl = baseUrl, model = model, apiKey = apiKey, id = LEGACY_PROFILE_ID, name = "旧配置"))
+    }
+
+    private fun profileBundleReadable(): Boolean {
+        if (!store.contains(PROFILES_KEY)) return true
+        return runCatching {
+            val root = JsonMini.parse(store.getString(PROFILES_KEY).orEmpty()).asObject()?.entries ?: return false
+            root["profiles"]?.asArray() != null
+        }.getOrDefault(false)
     }
 
     private fun encodeProfiles(profiles: List<AiSettings>): String = profiles.joinToString(",", prefix = "{\"profiles\":[", postfix = "]}") { profile ->
@@ -147,6 +178,8 @@ class AiSettingsManager(private val store: SecureValueStore) {
             "\"capabilityEvidence\":" + JsonMini.quote(profile.capabilityEvidence.name),
             "\"preference\":" + profile.preference,
             "\"providerProtocol\":" + JsonMini.quote(profile.providerProtocol.name),
+            "\"lastConnectionTestResult\":" + (profile.lastConnectionTestResult?.let(JsonMini::quote) ?: "null"),
+            "\"lastConnectionTestAt\":" + (profile.lastConnectionTestAt?.let(JsonMini::quote) ?: "null"),
         ).joinToString(",") + "}"
     }
 

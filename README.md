@@ -77,6 +77,15 @@ The project license has not yet been specified. Please check the repository for 
 - 新客户端通过该 Release 的长期资源地址读取 `update.json`，并以 GitHub 资源 SHA-256 作缓存键：`https://github.com/yeyeqiguai-create/Gather-AI/releases/download/<tag>/update.json?download=1&sha256=<asset-digest>`。其中包含 `versionName`、`versionCode`、`releaseNotes`、`apkUrl`、`sha256`；客户端会与 Release 标签、正文及 APK 资源交叉校验。
 - 没有 `update.json` 的历史 Release 使用兼容解析；元数据不匹配、APK 缺失或校验信息无效时不会允许安装。
 
+## v0.1.5.02 (Revise1) Beta
+
+- 新增可搜索的分类设置中心：通用、外观、聊天、服务商、自动选模、用量、附件、语音、更新、安全隐私、存储、诊断关于。搜索由设置分类注册表生成。
+- 深色/浅色/跟随系统、字体比例、紧凑消息间距、界面转场、默认路由模式、语音开关、启动更新检查和会话数量上限均会持久化并影响运行行为。
+- 用量页支持 7 天/30 天/全部筛选、刷新、清除确认，并按服务商、模型和会话汇总；新请求写入会话归属，旧记录显示为会话未知。Provider 测试结果会安全持久化，删除前提示关联会话数。
+- 删除聊天历史、清除用量与临时缓存分别确认且影响范围独立；脱敏诊断不包含 API Key、Base URL 或请求正文。
+- 搜索来自实际设置项注册表，并包含已配置的服务商和模型；TTS 设置仅在设备提供系统入口时可打开。
+- 语言资源目前只有简体中文；PDF 文本提取和非 OpenAI-compatible 原生协议未实现。单个附件上限 10 MB、每条消息最多 5 个附件；会话导出仍从聊天页操作。
+
 ## v0.1.5.01 (Revise1) Beta
 
 - 服务商配置按独立加密配置保存，可启停；每个配置有默认模型、额外模型 ID、上下文容量、任务能力声明与自动路由偏好。

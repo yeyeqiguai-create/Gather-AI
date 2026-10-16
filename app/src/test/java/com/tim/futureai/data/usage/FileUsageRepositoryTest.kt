@@ -40,8 +40,8 @@ class FileUsageRepositoryTest {
         val directory = Files.createTempDirectory("usage-ledger").toFile()
         try {
             val repository = FileUsageRepository(File(directory, "usage.json"))
-            repository.append(UsageRecord("p1", "Provider · model", "model", 125, promptTokens = 10, completionTokens = 4))
-            repository.append(UsageRecord("p1", "Provider · model", "model", 90, errorType = "Network"))
+            repository.append(UsageRecord("p1", "Provider · model", "model", 125, promptTokens = 10, completionTokens = 4, sessionId = "session-a"))
+            repository.append(UsageRecord("p1", "Provider · model", "model", 90, errorType = "Network", sessionId = "session-b"))
             val snapshot = FileUsageRepository(File(directory, "usage.json")).load()
             assertEquals(2, snapshot.requestCount)
             assertEquals(1, snapshot.errorCount)
@@ -49,8 +49,24 @@ class FileUsageRepositoryTest {
             assertEquals(10L, snapshot.promptTokens)
             assertEquals(4L, snapshot.completionTokens)
             assertEquals(215L, snapshot.totalDurationMs)
+            assertEquals("session-a", snapshot.records.first().sessionId)
+            assertEquals(2, snapshot.bySession().size)
+            assertEquals(1, snapshot.bySession().first { it.sessionId == "session-b" }.errorCount)
             assertNull(snapshot.estimatedUsdByModel(mapOf(UsagePriceKey("p1", "model") to ModelUsagePrice(0.15, 0.60))))
             assertTrue(snapshot.records.last().errorType == "Network")
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun clearRemovesUsageRecordsWithoutTouchingOtherFiles() = runBlocking {
+        val directory = Files.createTempDirectory("usage-clear").toFile()
+        try {
+            val ledger = File(directory, "usage.json")
+            val other = File(directory, "chat.json").apply { writeText("history") }
+            val repository = FileUsageRepository(ledger)
+            repository.append(UsageRecord("p", "Provider", "model", 10))
+            repository.clear()
+            assertEquals(0, FileUsageRepository(ledger).load().requestCount)
+            assertEquals("history", other.readText())
         } finally { directory.deleteRecursively() }
     }
 }

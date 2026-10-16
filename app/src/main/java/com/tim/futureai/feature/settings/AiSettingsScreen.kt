@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
@@ -89,9 +90,12 @@ fun AiSettingsScreen(
     onDeleteProfile: (String) -> Unit = {},
     onTestConnection: () -> Unit = {},
     usage: UsageSnapshot = UsageSnapshot(),
+    includeUsageAndUpdates: Boolean = true,
+    sessionReferences: Map<String, Int> = emptyMap(),
 ) {
     var showApiKey by remember { mutableStateOf(false) }
     var evidenceMenuExpanded by remember { mutableStateOf(false) }
+    var deleteProfileId by remember { mutableStateOf<String?>(null) }
     FutureBackdrop(modifier) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
@@ -155,11 +159,16 @@ fun AiSettingsScreen(
                         ) {
                             Column(Modifier.weight(1f)) {
                                 Text(profile.name, color = FuturePalette.Text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                                Text("${if (profile.enabled) "已启用" else "已停用"} · ${profile.model}${if (profile.availableModels.isBlank()) "" else " + 其他模型"}", color = FuturePalette.Muted, fontSize = 9.sp, maxLines = 1)
+                                val testedAt = profile.lastConnectionTestAt?.replace('T', ' ')?.take(16) ?: "时间未知"
+                                Text(
+                                    "${if (profile.enabled) "已启用" else "已停用"} · ${profile.providerProtocol.name} · ${profile.model}" +
+                                        (profile.lastConnectionTestResult?.let { " · 最近测试 $testedAt：$it" } ?: " · 尚未测试"),
+                                    color = FuturePalette.Muted, fontSize = 9.sp, maxLines = 2,
+                                )
                             }
                             if (profile.id == settings.id) Text("编辑中", color = FuturePalette.Cyan, fontSize = 10.sp)
                             else TextButton(onClick = { onSelectProfile(profile.id) }) { Text("编辑", color = FuturePalette.VioletBright) }
-                            TextButton(onClick = { onDeleteProfile(profile.id) }) { Text("删除", color = FuturePalette.Danger) }
+                            TextButton(onClick = { deleteProfileId = profile.id }) { Text("删除", color = FuturePalette.Danger) }
                         }
                     }
                     Text("每个会话可单独选择已保存的模型；密钥仍由 Android Keystore 加密保存。", color = FuturePalette.Muted, fontSize = 10.sp)
@@ -348,8 +357,8 @@ fun AiSettingsScreen(
                         Text("测试连接（不消耗生成 Token）", color = FuturePalette.Cyan)
                     }
                 }
-                UsageCard(usage, profiles)
-                UpdateSection(
+                if (includeUsageAndUpdates) UsageCard(usage, profiles)
+                if (includeUsageAndUpdates) UpdateSection(
                     result = updateResult,
                     checking = updateChecking,
                     message = updateMessage,
@@ -372,11 +381,22 @@ fun AiSettingsScreen(
                 Spacer(Modifier.height(8.dp))
             }
         }
+        deleteProfileId?.let { id ->
+            val name = profiles.firstOrNull { it.id == id }?.name ?: "该服务商"
+            val linked = sessionReferences[id] ?: 0
+            AlertDialog(
+                onDismissRequest = { deleteProfileId = null },
+                title = { Text("删除 $name？") },
+                text = { Text("将删除该服务商配置及其加密保存的 API Key。$linked 个会话仍保留历史，但后续请求需重新选择可用模型。聊天历史、其他服务商和用量统计不会删除。") },
+                confirmButton = { TextButton(onClick = { onDeleteProfile(id); deleteProfileId = null }) { Text("删除服务商", color = FuturePalette.Danger) } },
+                dismissButton = { TextButton(onClick = { deleteProfileId = null }) { Text("取消") } },
+            )
+        }
     }
 }
 
 @Composable
-private fun UsageCard(usage: UsageSnapshot, profiles: List<AiSettings>) {
+internal fun UsageCard(usage: UsageSnapshot, profiles: List<AiSettings>, sessionTitles: Map<String, String> = emptyMap()) {
     val modelPrices = profiles.associate { profile ->
         UsagePriceKey(profile.id, profile.model) to ModelUsagePrice(
             profile.inputUsdPerMillion.toDoubleOrNull(), profile.outputUsdPerMillion.toDoubleOrNull(),
@@ -404,10 +424,22 @@ private fun UsageCard(usage: UsageSnapshot, profiles: List<AiSettings>) {
             )
         }
         Text(
-            estimated?.let { "费用估算（USD）：~${"%.6f".format(it)}" }
+        estimated?.let { "费用估算（USD）：~${"%.6f".format(it)}" }
                 ?: "费用估算：未知（缺少完整 Token 用量或未配置单价）",
             color = FuturePalette.Cyan, fontSize = 11.sp,
         )
+        val sessions = usage.bySession()
+        if (sessions.isNotEmpty()) {
+            Text("按会话统计（最近 10 个）", color = FuturePalette.Text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            sessions.take(10).forEach { group ->
+                val label = group.sessionId?.let { sessionTitles[it] ?: "会话 ${it.take(8)}" } ?: "旧版记录（会话未知）"
+                Text(
+                    "$label：${group.requestCount} 次 / 错误 ${group.errorCount} 次 · 输入 ${group.promptTokens} / 输出 ${group.completionTokens} Token · ${group.totalDurationMs} ms",
+                    color = FuturePalette.Muted, fontSize = 9.sp, maxLines = 2,
+                )
+            }
+            if (sessions.size > 10) Text("另有 ${sessions.size - 10} 个会话，请使用时间筛选缩小范围。", color = FuturePalette.Muted, fontSize = 9.sp)
+        }
         usage.records.takeLast(5).asReversed().forEach { record ->
             Text(
                 "${record.providerName} · ${record.model} · ${record.durationMs} ms" +

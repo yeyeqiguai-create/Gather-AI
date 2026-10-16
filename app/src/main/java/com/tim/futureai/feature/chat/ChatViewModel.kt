@@ -53,6 +53,7 @@ class ChatViewModel(
     private var activeRequestProviderName: String = "默认配置"
     private var activeRequestModelName: String = "未知"
     private var nextMessageChoiceId: String? = null
+    private var historyLimit: Int = 0
     private var requestGeneration = 0L
     private val requestStatusBySession = mutableMapOf<String, ChatRequestStatus>()
     private val providerHealthByChoiceId = mutableMapOf<String, Pair<ProviderAvailability, Long>>()
@@ -63,18 +64,20 @@ class ChatViewModel(
             val snapshot = loaded?.snapshot
             sessionData = (snapshot?.sessions?.takeIf { it.isNotEmpty() } ?: listOf(defaultSession())).toMutableList()
             val active = sessionData.firstOrNull { it.session.id == snapshot?.activeSessionId } ?: sessionData.first()
-            val bubbles = active.messages.map { m ->
+            trimHistoryToLimit(active.session.id)
+            val retainedActive = sessionData.firstOrNull { it.session.id == active.session.id } ?: sessionData.first()
+            val bubbles = retainedActive.messages.map { m ->
                 ChatBubble(m.role, m.content, if (m.status == MessageStatus.GENERATING) MessageStatus.FAILED else m.status, m.attachments)
             }
             sessionData.forEach { data ->
                 requestStatusBySession[data.session.id] = statusForMessages(data.messages.map { ChatBubble(it.role, it.content, it.status, it.attachments) })
             }
             setState(_state.copy(
-                activeSessionId = active.session.id,
-                sessionTitle = active.session.title,
+                activeSessionId = retainedActive.session.id,
+                sessionTitle = retainedActive.session.title,
                 sessions = sessionData.map { it.session },
                 messages = bubbles,
-                selectedModelId = active.session.modelProfileId ?: defaultModelProfileId(),
+                selectedModelId = retainedActive.session.modelProfileId ?: defaultModelProfileId(),
                 isHistoryLoading = false,
                 requestStatus = statusForMessages(bubbles),
                 notice = if (loaded?.failed == true || loaded == null) "本地会话读取失败，已创建新会话" else null,
@@ -82,7 +85,7 @@ class ChatViewModel(
         } else {
             val first = defaultSession()
             sessionData += first
-            _state = initial.copy(activeSessionId = first.session.id, sessionTitle = first.session.title, sessions = listOf(first.session), selectedModelId = first.session.modelProfileId)
+            _state = initial.copy(activeSessionId = first.session.id, sessionTitle = first.session.title, sessions = listOf(first.session), selectedModelId = defaultModelProfileId())
         }
     }
 
@@ -201,7 +204,30 @@ class ChatViewModel(
         val data = defaultSession()
         sessionData.add(0, data)
         showSession(data)
+        trimHistoryToLimit(data.session.id)
         persistAll()
+    }
+
+    fun setHistoryLimit(limit: Int) {
+        historyLimit = limit.coerceIn(0, 5000)
+        if (!_state.isHistoryLoading && trimHistoryToLimit(_state.activeSessionId)) persistAll()
+    }
+
+    /** Clears every conversation and starts a fresh session; provider credentials and usage are untouched. */
+    fun clearAllHistory(onSaved: (Boolean) -> Unit = {}): Boolean {
+        if (_state.isHistoryLoading) return false
+        if (_state.isLoading) stopActiveRequest(showNotice = false)
+        nextMessageChoiceId = null
+        requestStatusBySession.clear()
+        val fresh = defaultSession()
+        sessionData = mutableListOf(fresh)
+        showSession(fresh)
+        scope.launch {
+            val saved = runCatching { sessionsRepository?.save(snapshot()) ?: true }.getOrDefault(false)
+            if (!saved) setState(_state.copy(notice = "会话保存失败，请检查设备存储空间"))
+            onSaved(saved)
+        }
+        return true
     }
 
     fun selectSession(id: String) {
@@ -366,6 +392,7 @@ class ChatViewModel(
                     model = requestedChoiceId ?: "未选择",
                     durationMs = 0,
                     errorType = "NoModelAvailable",
+                    sessionId = sessionId,
                 ))
             } } }
             return
@@ -423,6 +450,7 @@ class ChatViewModel(
                 errorType = (result as? AppResult.Failure)?.error?.javaClass?.simpleName,
                 promptTokens = tokenUsage.get()?.promptTokens,
                 completionTokens = tokenUsage.get()?.completionTokens,
+                sessionId = sessionId,
             ))
         }
         val messages = _state.messages.toMutableList()
@@ -498,6 +526,7 @@ class ChatViewModel(
                 profileId = activeRequestProfileId, providerName = activeRequestProviderName,
                 model = activeRequestModelName, durationMs = ((System.nanoTime() - startedAt) / 1_000_000L).coerceAtLeast(0),
                 errorType = "Cancelled",
+                sessionId = _state.activeSessionId,
             )
             usageRepository?.let { repository -> scope.launch { runCatching { repository.append(record) } } }
         }
@@ -589,7 +618,21 @@ class ChatViewModel(
 
     private fun persistAll() { scope.launch { persistCurrent() } }
     private fun snapshot() = ChatSessionsSnapshot(sessionData.toList(), _state.activeSessionId)
-    private fun defaultSession() = ChatSessionData(ChatSession(title = "新对话", modelProfileId = defaultModelProfileId()), emptyList())
+    /** Null stores inheritance; the effective global model is resolved when showing/sending. */
+    private fun defaultSession() = ChatSessionData(ChatSession(title = "新对话", modelProfileId = null), emptyList())
+
+    private fun trimHistoryToLimit(activeId: String): Boolean {
+        if (historyLimit <= 0 || sessionData.size <= historyLimit) return false
+        val active = sessionData.firstOrNull { it.session.id == activeId } ?: sessionData.firstOrNull() ?: return false
+        val kept = sessionData.sortedByDescending { it.session.updatedAt }.take(historyLimit).toMutableList()
+        if (kept.none { it.session.id == active.session.id }) kept[kept.lastIndex] = active
+        sessionData = kept.sortedByDescending { it.session.updatedAt }.toMutableList()
+        val retainedIds = sessionData.mapTo(mutableSetOf()) { it.session.id }
+        requestStatusBySession.keys.retainAll(retainedIds)
+        if (_state.activeSessionId != active.session.id) showSession(active)
+        else setState(_state.copy(sessions = sessionData.map { it.session }))
+        return true
+    }
 
     private fun setState(s: ChatUiState) { _state = s; onStateChanged?.invoke(s) }
 

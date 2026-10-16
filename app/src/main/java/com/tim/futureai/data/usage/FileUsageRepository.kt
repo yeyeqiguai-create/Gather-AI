@@ -27,6 +27,7 @@ class FileUsageRepository(private val file: File) : UsageRepository {
                     promptTokens = fields.numberOrNull("promptTokens"),
                     completionTokens = fields.numberOrNull("completionTokens"),
                     recordedAt = fields.string("recordedAt"),
+                    sessionId = fields["sessionId"]?.asString(),
                 )
             }
             UsageSnapshot(records)
@@ -46,6 +47,7 @@ class FileUsageRepository(private val file: File) : UsageRepository {
                 "\"promptTokens\":" + (entry.promptTokens?.toString() ?: "null"),
                 "\"completionTokens\":" + (entry.completionTokens?.toString() ?: "null"),
                 "\"recordedAt\":" + JsonMini.quote(entry.recordedAt),
+                "\"sessionId\":" + (entry.sessionId?.let(JsonMini::quote) ?: "null"),
             ).joinToString(",") + "}"
         } + "}"
         file.parentFile?.mkdirs()
@@ -58,6 +60,23 @@ class FileUsageRepository(private val file: File) : UsageRepository {
         if (!temp.renameTo(file)) {
             if (hadOld) backup.renameTo(file)
             error("Unable to update usage ledger")
+        }
+        backup.delete()
+        Unit
+    } }
+
+    override suspend fun clear() = mutex.withLock { withContext(Dispatchers.IO) {
+        file.parentFile?.mkdirs()
+        val temp = File(file.parentFile, "${file.name}.tmp")
+        val backup = File(file.parentFile, "${file.name}.bak")
+        temp.writeText("{\"records\":[]}")
+        if (backup.exists()) backup.delete()
+        val hadOld = file.exists()
+        if (hadOld && !file.renameTo(backup)) error("Unable to back up usage ledger")
+        if (!temp.renameTo(file)) {
+            if (hadOld) backup.renameTo(file)
+            temp.delete()
+            error("Unable to clear usage ledger")
         }
         backup.delete()
         Unit

@@ -120,6 +120,9 @@ fun ChatScreen(
     onShareMessage: (String) -> Unit = {},
     onExportSession: () -> Unit = {},
     isAiConfigured: Boolean = true,
+    showModelNames: Boolean = true,
+    showRoutingReason: Boolean = true,
+    compactSpacing: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     var showSessionManager by remember { mutableStateOf(false) }
@@ -128,7 +131,7 @@ fun ChatScreen(
             modifier = Modifier.fillMaxSize(),
             containerColor = Color.Transparent,
             contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
-            topBar = { BrandBar(state.sessionTitle, state.modelChoices, state.selectedModelId, onModelSelected, onNextMessageModelSelected, onExportSession, { showSessionManager = true }, onSettingsClick, state.activeModelExplanation) },
+            topBar = { BrandBar(state.sessionTitle, state.modelChoices, state.selectedModelId, onModelSelected, onNextMessageModelSelected, onExportSession, { showSessionManager = true }, onSettingsClick, state.activeModelExplanation, showModelNames, showRoutingReason) },
             bottomBar = {
                 Composer(
                     text = state.inputText,
@@ -178,6 +181,7 @@ fun ChatScreen(
                         onSpeak = onSpeak,
                         onEditMessage = onEditMessage,
                         onShareMessage = onShareMessage,
+                        compactSpacing = compactSpacing,
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                     )
                 }
@@ -207,6 +211,8 @@ private fun BrandBar(
     onSessionsClick: () -> Unit,
     onSettingsClick: () -> Unit,
     activeModelExplanation: String? = null,
+    showModelNames: Boolean = true,
+    showRoutingReason: Boolean = true,
 ) {
     var modelMenuExpanded by remember { mutableStateOf(false) }
     Row(
@@ -227,7 +233,7 @@ private fun BrandBar(
                 val selectedModel = modelChoices.firstOrNull { it.id == selectedModelId }
                 Box {
                     Text(
-                        "模型 · ${selectedModel?.displayName ?: "选择模型"}  ▾",
+                        if (showModelNames) "模型 · ${selectedModel?.displayName ?: "选择模型"}  ▾" else "模型选择  ▾",
                         color = FuturePalette.Cyan, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.clickable { modelMenuExpanded = true },
                     )
@@ -244,7 +250,7 @@ private fun BrandBar(
                         }
                     }
                 }
-                activeModelExplanation?.let { explanation ->
+                if (showRoutingReason) activeModelExplanation?.let { explanation ->
                     Text(explanation, color = FuturePalette.Muted, fontSize = 8.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
@@ -487,7 +493,7 @@ private fun PromptCard(text: String, index: Int, onClick: () -> Unit) {
 private fun Conversation(
     messages: List<ChatBubble>, onRegenerate: (Int) -> Unit, onRetry: (Int) -> Unit,
     speakingMessageKey: String?, onSpeak: (String, String) -> Unit,
-    onEditMessage: (Int) -> Unit, onShareMessage: (String) -> Unit, modifier: Modifier = Modifier,
+    onEditMessage: (Int) -> Unit, onShareMessage: (String) -> Unit, compactSpacing: Boolean = false, modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
     val retryUserIndex = messages.indexOfLast { it.role == MessageRole.USER }
@@ -495,8 +501,8 @@ private fun Conversation(
     LazyColumn(
         state = listState,
         modifier = modifier,
-        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = if (compactSpacing) 9.dp else 16.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compactSpacing) 8.dp else 14.dp),
     ) {
         itemsIndexed(messages) { index, message ->
             val key = "$index:${message.text.hashCode()}"

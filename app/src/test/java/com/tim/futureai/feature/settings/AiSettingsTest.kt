@@ -152,4 +152,38 @@ class AiSettingsTest {
         }
         assertTrue(AiSettingsManager(legacy).profiles().single().enabled)
     }
+
+    @Test fun connectionTestStatusPersistsWithoutExposingTheApiKeyToProfileList() {
+        val store = FakeSecureStore()
+        val manager = AiSettingsManager(store)
+        assertEquals(SettingsSaveResult.Saved, manager.save(AiSettings(
+            id = "provider", name = "Provider", baseUrl = "https://example.com/v1", model = "model", apiKey = "secret-key",
+        )))
+        assertTrue(manager.recordConnectionTest("provider", "鉴权失败（HTTP 401）"))
+        val restored = AiSettingsManager(store).loadProfile("provider")!!
+        assertEquals("鉴权失败（HTTP 401）", restored.lastConnectionTestResult)
+        assertTrue(restored.lastConnectionTestAt!!.isNotBlank())
+        assertEquals("", AiSettingsManager(store).profiles().single().apiKey)
+    }
+
+    @Test fun migrationStatusDistinguishesLegacyNewAndEmptyConfiguration() {
+        val store = FakeSecureStore()
+        val manager = AiSettingsManager(store)
+        assertTrue(manager.migrationStatus().contains("无待迁移"))
+        store.putString("base_url", "https://legacy.example/v1")
+        assertTrue(manager.migrationStatus().contains("旧版单 Provider"))
+        assertEquals(SettingsSaveResult.Saved, manager.save(AiSettings(
+            id = "legacy", baseUrl = "https://legacy.example/v1", model = "m", apiKey = "k",
+        )))
+        assertTrue(manager.migrationStatus().contains("新版加密"))
+    }
+
+    @Test fun corruptedProviderBundleIsReportedAndNeverOverwrittenBySave() {
+        val store = FakeSecureStore().apply { putString("ai_provider_profiles_v1", "{broken") }
+        val manager = AiSettingsManager(store)
+        assertTrue(manager.migrationStatus().contains("无法解析"))
+        val result = manager.save(AiSettings(baseUrl = "https://example.com/v1", model = "m", apiKey = "k"))
+        assertTrue(result is SettingsSaveResult.Invalid)
+        assertEquals("{broken", store.getString("ai_provider_profiles_v1"))
+    }
 }
