@@ -11,11 +11,12 @@ data class ChatUiState(
     val inputText: String = "",
     /** 请求进行中（等待 AI 回复）。 */
     val isLoading: Boolean = false,
+    val isHistoryLoading: Boolean = false,
     /** 需要展示给用户的提示（错误/配置缺失）；用户可见后可清除。 */
     val notice: String? = null,
 ) {
     /** 当前输入是否可发送（非空白且不在请求中）。 */
-    val canSend: Boolean get() = inputText.isNotBlank() && !isLoading
+    val canSend: Boolean get() = inputText.isNotBlank() && !isLoading && !isHistoryLoading
 
     /**
      * 发送：把当前输入追加为一条 USER 消息并清空输入框。

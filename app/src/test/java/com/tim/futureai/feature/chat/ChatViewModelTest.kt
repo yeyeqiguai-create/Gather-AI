@@ -3,7 +3,10 @@ package com.tim.futureai.feature.chat
 import com.tim.futureai.core.common.AppError
 import com.tim.futureai.core.common.AppResult
 import com.tim.futureai.domain.ai.AiProvider
+import com.tim.futureai.domain.chat.ChatHistoryLoad
+import com.tim.futureai.domain.chat.ChatHistoryRepository
 import com.tim.futureai.domain.model.ChatMessage
+import com.tim.futureai.domain.model.MessageRole
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertEquals
@@ -19,6 +22,15 @@ import org.junit.Test
  * FakeProvider 无挂起点，send() 返回后状态即最终，可直接断言。
  */
 class ChatViewModelTest {
+
+    private class MemoryHistory(var messages: List<ChatMessage> = emptyList()) : ChatHistoryRepository {
+        var failed = false
+        override suspend fun load() = ChatHistoryLoad(messages, failed)
+        override suspend fun save(messages: List<ChatMessage>): Boolean {
+            this.messages = messages
+            return !failed
+        }
+    }
 
     private class FakeProvider(
         var result: AppResult<String>,
@@ -127,6 +139,31 @@ class ChatViewModelTest {
         awaitSettled(vm)
         vm.dismissNotice()
         assertNull(vm.state.notice)
+    }
+
+    @Test
+    fun historyRestoresAndPersistsUserAndAssistantMessages() {
+        val history = MemoryHistory()
+        val first = ChatMessage(sessionId = "current", role = MessageRole.USER, content = "先前的问题")
+        history.messages = listOf(first, ChatMessage(sessionId = "current", role = MessageRole.ASSISTANT, content = "先前的回答"))
+        val scope = RecordingScope()
+        val vm = ChatViewModel(scope, FakeProvider(AppResult.success("新回答")), historyRepository = history)
+        assertEquals(listOf("先前的问题", "先前的回答"), vm.state.messages.map { it.text })
+        vm.updateInput("新问题")
+        vm.send()
+        awaitSettled(vm)
+        assertEquals(listOf("先前的问题", "先前的回答", "新问题", "新回答"), history.messages.map { it.content })
+        assertEquals(listOf(MessageRole.USER, MessageRole.ASSISTANT, MessageRole.USER, MessageRole.ASSISTANT), history.messages.map { it.role })
+        vm.clear()
+        assertTrue(history.messages.isEmpty())
+    }
+
+    @Test
+    fun historyReadFailureDoesNotPreventChatStartup() {
+        val history = MemoryHistory().apply { failed = true }
+        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("ok")), historyRepository = history)
+        assertFalse(vm.state.isHistoryLoading)
+        assertTrue(vm.state.notice!!.contains("本地聊天记录读取失败"))
     }
 
     @Test

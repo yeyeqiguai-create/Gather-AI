@@ -20,6 +20,7 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.tim.futureai.core.security.SecureKeyStore
 import com.tim.futureai.data.ai.OpenAiCompatProvider
+import com.tim.futureai.data.chat.FileChatHistoryRepository
 import com.tim.futureai.domain.ai.AiChatConfig
 import com.tim.futureai.feature.chat.ChatScreen
 import com.tim.futureai.feature.chat.ChatUiState
@@ -28,6 +29,7 @@ import com.tim.futureai.feature.settings.AiSettingsManager
 import com.tim.futureai.feature.settings.AiSettingsScreen
 import com.tim.futureai.feature.settings.SettingsSaveResult
 import com.tim.futureai.ui.theme.FuturePalette
+import java.io.File
 
 private val FutureColors = darkColorScheme(
     primary = FuturePalette.Violet,
@@ -68,7 +70,8 @@ class MainActivity : ComponentActivity() {
             )
             if (config.isConfigured()) config else null
         })
-        val viewModel = ChatViewModel(lifecycleScope, provider)
+        val historyRepository = FileChatHistoryRepository(File(filesDir, "chat-history.json"))
+        val viewModel = ChatViewModel(lifecycleScope, provider, historyRepository = historyRepository)
 
         setContent {
             MaterialTheme(colorScheme = FutureColors) {

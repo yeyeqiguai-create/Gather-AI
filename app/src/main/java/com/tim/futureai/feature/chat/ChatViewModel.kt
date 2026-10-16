@@ -3,6 +3,7 @@ package com.tim.futureai.feature.chat
 import com.tim.futureai.core.common.AppError
 import com.tim.futureai.core.common.AppResult
 import com.tim.futureai.domain.ai.AiProvider
+import com.tim.futureai.domain.chat.ChatHistoryRepository
 import com.tim.futureai.domain.model.ChatMessage
 import com.tim.futureai.domain.model.MessageRole
 import kotlinx.coroutines.CoroutineScope
@@ -18,8 +19,9 @@ class ChatViewModel(
     private val scope: CoroutineScope,
     private val provider: AiProvider,
     initial: ChatUiState = ChatUiState(),
+    private val historyRepository: ChatHistoryRepository? = null,
 ) {
-    private var _state: ChatUiState = initial
+    private var _state: ChatUiState = initial.copy(isHistoryLoading = historyRepository != null)
 
     /** 当前状态。 */
     val state: ChatUiState get() = _state
@@ -29,6 +31,20 @@ class ChatViewModel(
 
     private var sendJob: Job? = null
 
+    init {
+        if (historyRepository != null) scope.launch {
+            val loaded = runCatching { historyRepository.load() }.getOrNull()
+            val messages = loaded?.messages.orEmpty()
+                .filter { it.role == MessageRole.USER || it.role == MessageRole.ASSISTANT }
+                .map { ChatBubble(it.role, it.content) }
+            setState(_state.copy(
+                messages = messages,
+                isHistoryLoading = false,
+                notice = if (loaded?.failed == true || loaded == null) "本地聊天记录读取失败，已开始空白会话" else _state.notice,
+            ))
+        }
+    }
+
     fun updateInput(text: String) = setState(_state.updateInput(text))
 
     fun dismissNotice() = setState(_state.dismissNotice())
@@ -36,7 +52,7 @@ class ChatViewModel(
     /** 发送当前输入；已在加载中则忽略。 */
     fun send() {
         val current = _state
-        if (current.isLoading || !current.canSend) return
+        if (current.isLoading || current.isHistoryLoading || !current.canSend) return
         // 历史包含已上屏消息 + 本次发送的用户消息。
         val history = current.messages.map {
             ChatMessage(sessionId = "ui", role = it.role, content = it.text)
@@ -51,12 +67,14 @@ class ChatViewModel(
         )
         setState(pending)
         sendJob = scope.launch {
+            persist(pending.messages)
             var s = pending
             when (val result = provider.complete(history)) {
                 is AppResult.Success -> s = s.addAssistantReply(result.data).finishSending()
                 is AppResult.Failure -> s = s.finishSending(notice = result.error.toUserMessage())
             }
             setState(s)
+            persist(s.messages, showError = s.notice == null)
         }
     }
 
@@ -71,11 +89,22 @@ class ChatViewModel(
     fun clear() {
         scope.coroutineContext.cancelChildren()
         setState(ChatUiState(sessionTitle = _state.sessionTitle))
+        historyRepository?.let { repository ->
+            scope.launch { runCatching { repository.save(emptyList()) } }
+        }
     }
 
     private fun setState(s: ChatUiState) {
         _state = s
         onStateChanged?.invoke(s)
+    }
+
+    private suspend fun persist(messages: List<ChatBubble>, showError: Boolean = true) {
+        val repository = historyRepository ?: return
+        val saved = runCatching {
+            repository.save(messages.map { ChatMessage(sessionId = "current", role = it.role, content = it.text) })
+        }.getOrDefault(false)
+        if (!saved && showError) setState(_state.copy(notice = "聊天记录保存失败，请检查设备存储空间"))
     }
 
     companion object {
