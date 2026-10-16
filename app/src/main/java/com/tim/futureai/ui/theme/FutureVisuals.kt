@@ -97,6 +97,21 @@ fun FutureGlyph(
                 drawCircle(tint, 6.5f * unit, center = point(10.5f, 10.5f), style = Stroke(1.8f * unit))
                 line(15.3f, 15.3f, 21f, 21f, 1.9f)
             }
+            "pin", "pin_filled" -> {
+                val path = Path().apply {
+                    moveTo(8f * unit, 3f * unit)
+                    lineTo(16f * unit, 3f * unit)
+                    lineTo(15f * unit, 8f * unit)
+                    lineTo(19f * unit, 12f * unit)
+                    lineTo(14f * unit, 13f * unit)
+                    lineTo(12f * unit, 21f * unit)
+                    lineTo(10f * unit, 13f * unit)
+                    lineTo(5f * unit, 12f * unit)
+                    lineTo(9f * unit, 8f * unit)
+                    close()
+                }
+                drawPath(path, tint, style = if (name == "pin_filled") androidx.compose.ui.graphics.drawscope.Fill else Stroke(1.7f * unit))
+            }
             "settings" -> {
                 drawCircle(tint, 7.2f * unit, center = point(12f, 12f), style = Stroke(1.8f * unit))
                 drawCircle(tint, 2.4f * unit, center = point(12f, 12f), style = Stroke(1.8f * unit))

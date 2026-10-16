@@ -50,6 +50,7 @@ data class ChatSession(
     val title: String,
     val createdAt: Instant = Instant.now(),
     val updatedAt: Instant = createdAt,
+    val isPinned: Boolean = false,
 ) {
     init {
         require(id.isNotBlank()) { "session id must not be blank" }

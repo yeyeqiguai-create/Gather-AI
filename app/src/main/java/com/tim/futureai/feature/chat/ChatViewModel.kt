@@ -86,6 +86,17 @@ class ChatViewModel(
         return true
     }
 
+    fun toggleSessionPinned(id: String): Boolean {
+        if (_state.isLoading || _state.isHistoryLoading) return false
+        val index = sessionData.indexOfFirst { it.session.id == id }
+        if (index < 0) return false
+        val current = sessionData[index]
+        sessionData[index] = current.copy(session = current.session.copy(isPinned = !current.session.isPinned))
+        setState(_state.copy(sessions = sessionData.map { it.session }))
+        persistAll()
+        return true
+    }
+
     fun deleteSession(id: String): Boolean {
         if (_state.isLoading || _state.isHistoryLoading || sessionData.none { it.session.id == id }) return false
         sessionData.removeAll { it.session.id == id }
@@ -194,7 +205,15 @@ class ChatViewModel(
 
     private fun syncActiveMessages(messages: List<ChatBubble>) {
         val i = sessionData.indexOfFirst { it.session.id == _state.activeSessionId }
-        if (i >= 0) sessionData[i] = sessionData[i].copy(messages = messages.map { ChatMessage(sessionId = _state.activeSessionId, role = it.role, content = it.text, status = it.status) })
+        if (i >= 0) {
+            val previous = sessionData[i].messages
+            val synchronized = messages.mapIndexed { index, bubble ->
+                val old = previous.getOrNull(index)
+                if (old != null) old.copy(role = bubble.role, content = bubble.text, status = bubble.status)
+                else ChatMessage(sessionId = _state.activeSessionId, role = bubble.role, content = bubble.text, status = bubble.status)
+            }
+            sessionData[i] = sessionData[i].copy(messages = synchronized)
+        }
     }
 
     private suspend fun persistCurrent(showError: Boolean = true) {

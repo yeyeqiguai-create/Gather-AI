@@ -38,6 +38,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.Composable
@@ -95,6 +97,7 @@ fun ChatScreen(
     onNewSession: () -> Unit = {},
     onSelectSession: (String) -> Unit = {},
     onRenameSession: (String, String) -> Boolean = { _, _ -> false },
+    onToggleSessionPinned: (String) -> Boolean = { false },
     onDeleteSession: (String) -> Boolean = { false },
     isAiConfigured: Boolean = true,
     modifier: Modifier = Modifier,
@@ -149,6 +152,7 @@ fun ChatScreen(
             onNew = { onNewSession(); showSessionManager = false },
             onSelect = { onSelectSession(it); showSessionManager = false },
             onRename = onRenameSession,
+            onTogglePinned = onToggleSessionPinned,
             onDelete = onDeleteSession,
         )
     }
@@ -191,13 +195,16 @@ private fun SessionManagerDialog(
     onNew: () -> Unit,
     onSelect: (String) -> Unit,
     onRename: (String, String) -> Boolean,
+    onTogglePinned: (String) -> Boolean,
     onDelete: (String) -> Boolean,
 ) {
     var editingId by remember { mutableStateOf<String?>(null) }
     var editText by remember { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<ChatSession?>(null) }
     var searchQuery by remember { mutableStateOf("") }
-    val visibleSessions = filterSessions(sessions, searchQuery)
+    var sortOrder by remember { mutableStateOf(SessionSortOrder.RECENT_ACTIVITY) }
+    var showSortMenu by remember { mutableStateOf(false) }
+    val visibleSessions = sortAndFilterSessions(sessions, searchQuery, sortOrder)
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
             Modifier.fillMaxWidth(0.94f).widthIn(max = 440.dp).glassPanel(RoundedCornerShape(28.dp)).padding(20.dp),
@@ -230,6 +237,19 @@ private fun SessionManagerDialog(
                     }
                 }
             }
+            Box {
+                TextButton(onClick = { showSortMenu = true }) {
+                    Text("排序：${sortOrder.label}", color = FuturePalette.VioletBright, fontSize = 11.sp)
+                }
+                DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
+                    SessionSortOrder.entries.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option.label) },
+                            onClick = { sortOrder = option; showSortMenu = false },
+                        )
+                    }
+                }
+            }
             Column(Modifier.height(340.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (visibleSessions.isEmpty()) {
                     Text(
@@ -259,8 +279,14 @@ private fun SessionManagerDialog(
                             TextButton(onClick = { editingId = null }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("取消", color = FuturePalette.Muted, fontSize = 11.sp) }
                         } else {
                             Column(Modifier.weight(1f).padding(vertical = 7.dp)) {
-                                Text(session.title, color = FuturePalette.Text, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(session.title, color = FuturePalette.Text, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    if (session.isPinned) Text(" 置顶", color = FuturePalette.Cyan, fontSize = 9.sp)
+                                }
                                 Text(if (session.id == activeSessionId) "当前会话" else session.updatedAt.toString().take(10), color = FuturePalette.Muted, fontSize = 10.sp)
+                            }
+                            androidx.compose.material3.IconButton(onClick = { onTogglePinned(session.id) }) {
+                                FutureGlyph(if (session.isPinned) "pin_filled" else "pin", tint = if (session.isPinned) FuturePalette.Cyan else FuturePalette.Muted, size = 17.dp)
                             }
                             androidx.compose.material3.IconButton(onClick = { editingId = session.id; editText = session.title }) { FutureGlyph("edit", tint = FuturePalette.Muted, size = 17.dp) }
                             androidx.compose.material3.IconButton(onClick = { deleteTarget = session }) { FutureGlyph("delete", tint = FuturePalette.Danger, size = 17.dp) }

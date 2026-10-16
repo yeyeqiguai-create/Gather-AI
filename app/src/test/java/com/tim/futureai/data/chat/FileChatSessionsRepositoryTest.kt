@@ -17,7 +17,7 @@ class FileChatSessionsRepositoryTest {
         try {
             val repo = FileChatSessionsRepository(File(dir, "sessions.json"), File(dir, "legacy.json"))
             val first = ChatSession(id = "s1", title = "第一段")
-            val second = ChatSession(id = "s2", title = "第二段")
+            val second = ChatSession(id = "s2", title = "第二段", isPinned = true)
             val snapshot = ChatSessionsSnapshot(listOf(
                 ChatSessionData(first, listOf(ChatMessage(sessionId = "s1", role = MessageRole.USER, content = "甲"))),
                 ChatSessionData(second, listOf(ChatMessage(sessionId = "s2", role = MessageRole.USER, content = "乙"))),
@@ -28,6 +28,23 @@ class FileChatSessionsRepositoryTest {
             assertEquals("s2", restored.activeSessionId)
             assertEquals(listOf("甲"), restored.sessions[0].messages.map { it.content })
             assertEquals(listOf("乙"), restored.sessions[1].messages.map { it.content })
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun oldSessionRecordsWithoutPinFieldLoadUnpinnedAndMessagesStayIntact() = runBlocking {
+        val dir = Files.createTempDirectory("sessions-no-pin").toFile()
+        try {
+            val file = File(dir, "sessions.json")
+            file.writeText("""{"version":"2","activeSessionId":"s1","sessions":[{"id":"s1","title":"保留","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","messages":[{"id":"m1","sessionId":"s1","role":"USER","content":"历史内容","createdAt":"2026-01-01T00:00:01Z","status":"SENT"}]}]}""")
+            val loaded = FileChatSessionsRepository(file, File(dir, "legacy.json")).load()
+            assertFalse(loaded.failed)
+            assertFalse(loaded.snapshot.sessions.single().session.isPinned)
+            assertEquals("历史内容", loaded.snapshot.sessions.single().messages.single().content)
+            val pinned = loaded.snapshot.copy(sessions = loaded.snapshot.sessions.map { it.copy(session = it.session.copy(isPinned = true)) })
+            assertTrue(FileChatSessionsRepository(file, File(dir, "legacy.json")).save(pinned))
+            val restored = FileChatSessionsRepository(file, File(dir, "legacy.json")).load().snapshot
+            assertTrue(restored.sessions.single().session.isPinned)
+            assertEquals("历史内容", restored.sessions.single().messages.single().content)
         } finally { dir.deleteRecursively() }
     }
 

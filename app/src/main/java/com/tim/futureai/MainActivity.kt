@@ -125,6 +125,7 @@ class MainActivity : ComponentActivity() {
                         onNewSession = viewModel::newSession,
                         onSelectSession = viewModel::selectSession,
                         onRenameSession = viewModel::renameSession,
+                        onToggleSessionPinned = viewModel::toggleSessionPinned,
                         onDeleteSession = viewModel::deleteSession,
                         onExamplePrompt = viewModel::updateInput,
                         onSettingsClick = {

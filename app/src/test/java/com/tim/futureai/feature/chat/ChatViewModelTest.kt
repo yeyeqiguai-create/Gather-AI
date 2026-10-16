@@ -208,6 +208,23 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun pinTogglePersistsWithoutChangingMessagesOrSessionIdentity() {
+        val history = MemoryHistory(listOf(ChatMessage(sessionId = "current", role = MessageRole.USER, content = "保留内容")))
+        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("回复")), sessionsRepository = history)
+        val id = vm.state.activeSessionId
+        val beforeMessages = history.messages
+
+        assertTrue(vm.toggleSessionPinned(id))
+        assertTrue(vm.state.sessions.single().isPinned)
+        assertEquals(id, history.snapshot.sessions.single().session.id)
+        assertEquals(beforeMessages, history.messages)
+        assertTrue(history.snapshot.sessions.single().session.isPinned)
+        assertTrue(vm.toggleSessionPinned(id))
+        assertFalse(vm.state.sessions.single().isPinned)
+        assertEquals(beforeMessages, history.messages)
+    }
+
+    @Test
     fun regenerateReplacesReplyWithoutDuplicatingAndUsesOriginalQuestion() {
         val history = MemoryHistory(listOf(
             ChatMessage(id = "u", sessionId = "current", role = MessageRole.USER, content = "原问题"),
