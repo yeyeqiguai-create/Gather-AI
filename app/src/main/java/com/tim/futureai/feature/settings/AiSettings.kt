@@ -7,7 +7,11 @@ data class AiSettings(
     val baseUrl: String = "",
     val model: String = "",
     val apiKey: String = "",
-)
+    val hasSavedApiKey: Boolean = false,
+) {
+    val isConfigured: Boolean
+        get() = baseUrl.isNotBlank() && model.isNotBlank() && (apiKey.isNotBlank() || hasSavedApiKey)
+}
 
 sealed interface SettingsSaveResult {
     data object Saved : SettingsSaveResult
@@ -20,7 +24,8 @@ class AiSettingsManager(private val store: SecureValueStore) {
     fun load(): AiSettings = AiSettings(
         baseUrl = store.getString(SecureKeyStore.KEY_BASE_URL).orEmpty(),
         model = store.getString(SecureKeyStore.KEY_MODEL).orEmpty(),
-        apiKey = store.getString(SecureKeyStore.KEY_API).orEmpty(),
+        apiKey = "",
+        hasSavedApiKey = store.contains(SecureKeyStore.KEY_API),
     )
 
     fun save(settings: AiSettings): SettingsSaveResult {
@@ -29,24 +34,24 @@ class AiSettingsManager(private val store: SecureValueStore) {
             model = settings.model.trim(),
             apiKey = settings.apiKey.trim(),
         )
-        val error = validate(normalized)
+        val error = validate(normalized, normalized.hasSavedApiKey)
         if (error != null) return SettingsSaveResult.Invalid(error)
         if (!store.putString(SecureKeyStore.KEY_BASE_URL, normalized.baseUrl) ||
             !store.putString(SecureKeyStore.KEY_MODEL, normalized.model) ||
-            !store.putString(SecureKeyStore.KEY_API, normalized.apiKey)
+            (normalized.apiKey.isNotBlank() && !store.putString(SecureKeyStore.KEY_API, normalized.apiKey))
         ) return SettingsSaveResult.StorageError
         return SettingsSaveResult.Saved
     }
 
     companion object {
-        fun validate(settings: AiSettings): String? {
+        fun validate(settings: AiSettings, hasSavedApiKey: Boolean = settings.hasSavedApiKey): String? {
             if (settings.baseUrl.isBlank()) return "请输入 API Base URL"
             val url = runCatching { java.net.URI(settings.baseUrl.trim()) }.getOrNull()
             if (url == null || url.scheme !in setOf("http", "https") || url.host.isNullOrBlank()) {
                 return "请输入有效的 HTTP 或 HTTPS Base URL"
             }
             if (settings.model.isBlank()) return "请输入 Model 名称"
-            if (settings.apiKey.isBlank()) return "请输入 API Key"
+            if (settings.apiKey.isBlank() && !hasSavedApiKey) return "请输入 API Key"
             return null
         }
     }

@@ -3,9 +3,7 @@ package com.tim.futureai.feature.chat
 import com.tim.futureai.domain.model.MessageRole
 
 /**
- * 聊天页 UI 状态与状态逻辑（纯 Kotlin，可单元测试；渲染交给 ChatScreen）。
- *
- * 本版本不接 AI API：发送只是把用户输入追加到本地消息列表。
+ * 聊天页状态与交互逻辑（纯 Kotlin，可单元测试；渲染交给 ChatScreen）。
  */
 data class ChatUiState(
     val sessionTitle: String = "Future AI",

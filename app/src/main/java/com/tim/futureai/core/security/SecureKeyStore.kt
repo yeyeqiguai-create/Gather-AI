@@ -17,6 +17,7 @@ import javax.crypto.spec.GCMParameterSpec
 interface SecureValueStore {
     fun putString(key: String, plainText: String): Boolean
     fun getString(key: String): String?
+    fun contains(key: String): Boolean
 }
 
 class SecureKeyStore(private val context: Context) : SecureValueStore {
@@ -52,6 +53,12 @@ class SecureKeyStore(private val context: Context) : SecureValueStore {
         String(cipher.doFinal(android.util.Base64.decode(dataB64, android.util.Base64.NO_WRAP)), Charsets.UTF_8)
     } catch (e: Exception) {
         null
+    }
+
+    override fun contains(key: String): Boolean = try {
+        prefs.contains("$key.iv") && prefs.contains("$key.data")
+    } catch (e: Exception) {
+        false
     }
 
     /** 删除指定条目。 */

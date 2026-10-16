@@ -14,6 +14,7 @@ class AiSettingsTest {
             return true
         }
         override fun getString(key: String): String? = values[key]
+        override fun contains(key: String): Boolean = values.containsKey(key)
     }
 
     @Test fun validate_requiresBaseUrl() {
@@ -44,8 +45,20 @@ class AiSettingsTest {
         val reloaded = AiSettingsManager(store).load()
         assertEquals("https://example.com/v1", reloaded.baseUrl)
         assertEquals("model-x", reloaded.model)
-        assertEquals("mock-key", reloaded.apiKey)
+        assertEquals("", reloaded.apiKey)
+        assertTrue(reloaded.hasSavedApiKey)
         assertTrue(AiSettingsManager.validate(reloaded) == null)
+    }
+
+    @Test fun saveWithBlankKeyPreservesExistingSecureKey() {
+        val store = FakeSecureStore()
+        val manager = AiSettingsManager(store)
+        manager.save(AiSettings("https://example.com/v1", "model-x", "mock-key"))
+
+        val reopened = manager.load()
+        assertEquals(SettingsSaveResult.Saved, manager.save(reopened.copy(model = "model-y")))
+        assertEquals("mock-key", store.getString("api_key"))
+        assertEquals("model-y", manager.load().model)
     }
 
     @Test fun save_invalidSettingsDoesNotWriteAnything() {
