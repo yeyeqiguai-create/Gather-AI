@@ -34,8 +34,7 @@ import androidx.compose.ui.unit.dp
 import com.tim.futureai.domain.model.MessageRole
 
 /**
- * 聊天页骨架：顶部标题栏 + 消息列表 + 底部输入框/发送按钮。
- * 发送只更新本地列表，不调用任何 AI API。
+ * 聊天页：顶部标题栏 + 消息列表 + 底部输入框/发送按钮。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

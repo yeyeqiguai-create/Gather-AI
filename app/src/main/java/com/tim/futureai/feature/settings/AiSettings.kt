@@ -1,6 +1,7 @@
 package com.tim.futureai.feature.settings
 
 import com.tim.futureai.core.security.SecureKeyStore
+import com.tim.futureai.core.security.SecureValueStore
 
 data class AiSettings(
     val baseUrl: String = "",
@@ -15,7 +16,7 @@ sealed interface SettingsSaveResult {
 }
 
 /** Validation and persistence boundary; API keys are only passed to SecureKeyStore. */
-class AiSettingsManager(private val store: SecureKeyStore) {
+class AiSettingsManager(private val store: SecureValueStore) {
     fun load(): AiSettings = AiSettings(
         baseUrl = store.getString(SecureKeyStore.KEY_BASE_URL).orEmpty(),
         model = store.getString(SecureKeyStore.KEY_MODEL).orEmpty(),

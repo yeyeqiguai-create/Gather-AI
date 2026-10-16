@@ -14,14 +14,19 @@ import javax.crypto.spec.GCMParameterSpec
  * 每条值用 Keystore 内 AES/GCM 密钥加密，密文存 SharedPreferences。
  * API Key 明文只存在于内存中，不落盘明文、不进日志。
  */
-class SecureKeyStore(private val context: Context) {
+interface SecureValueStore {
+    fun putString(key: String, plainText: String): Boolean
+    fun getString(key: String): String?
+}
+
+class SecureKeyStore(private val context: Context) : SecureValueStore {
 
     private val prefs by lazy {
         context.getSharedPreferences("futureai_secure", Context.MODE_PRIVATE)
     }
 
     /** 保存明文 → 加密后落盘。返回是否成功。 */
-    fun putString(key: String, plainText: String): Boolean = try {
+    override fun putString(key: String, plainText: String): Boolean = try {
         val cipher = Cipher.getInstance(TRANSFORM).apply { init(Cipher.ENCRYPT_MODE, getOrCreateKey()) }
         val iv = cipher.iv
         val encrypted = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
@@ -35,7 +40,7 @@ class SecureKeyStore(private val context: Context) {
     }
 
     /** 读取并解密；不存在或解密失败返回 null。 */
-    fun getString(key: String): String? = try {
+    override fun getString(key: String): String? = try {
         val ivB64 = prefs.getString("$key.iv", null) ?: return null
         val dataB64 = prefs.getString("$key.data", null) ?: return null
         val cipher = Cipher.getInstance(TRANSFORM).apply {
