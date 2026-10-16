@@ -93,6 +93,10 @@ fun FutureGlyph(
             drawLine(tint, point(x1, y1), point(x2, y2), strokeWidth = width * unit, cap = StrokeCap.Round)
         }
         when (name) {
+            "search" -> {
+                drawCircle(tint, 6.5f * unit, center = point(10.5f, 10.5f), style = Stroke(1.8f * unit))
+                line(15.3f, 15.3f, 21f, 21f, 1.9f)
+            }
             "settings" -> {
                 drawCircle(tint, 7.2f * unit, center = point(12f, 12f), style = Stroke(1.8f * unit))
                 drawCircle(tint, 2.4f * unit, center = point(12f, 12f), style = Stroke(1.8f * unit))

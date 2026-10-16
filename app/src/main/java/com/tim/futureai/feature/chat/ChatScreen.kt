@@ -196,6 +196,8 @@ private fun SessionManagerDialog(
     var editingId by remember { mutableStateOf<String?>(null) }
     var editText by remember { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<ChatSession?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
+    val visibleSessions = filterSessions(sessions, searchQuery)
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
             Modifier.fillMaxWidth(0.94f).widthIn(max = 440.dp).glassPanel(RoundedCornerShape(28.dp)).padding(20.dp),
@@ -208,8 +210,36 @@ private fun SessionManagerDialog(
                 }
                 TextButton(onClick = onNew) { FutureGlyph("plus", tint = FuturePalette.VioletBright, size = 18.dp); Spacer(Modifier.width(5.dp)); Text("新建", color = FuturePalette.VioletBright) }
             }
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).background(Color(0x241A2030))
+                    .border(1.dp, FuturePalette.Edge, RoundedCornerShape(15.dp)).padding(start = 12.dp, end = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FutureGlyph("search", tint = FuturePalette.Muted, size = 17.dp)
+                BasicTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier.weight(1f).padding(horizontal = 9.dp, vertical = 13.dp),
+                    textStyle = TextStyle(color = FuturePalette.Text, fontSize = 13.sp),
+                    singleLine = true,
+                    decorationBox = { inner -> Box { if (searchQuery.isEmpty()) Text("搜索会话名称", color = FuturePalette.Muted, fontSize = 13.sp); inner() } },
+                )
+                if (searchQuery.isNotEmpty()) {
+                    TextButton(onClick = { searchQuery = "" }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                        Text("清空", color = FuturePalette.VioletBright, fontSize = 11.sp)
+                    }
+                }
+            }
             Column(Modifier.height(340.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                sessions.forEach { session ->
+                if (visibleSessions.isEmpty()) {
+                    Text(
+                        if (sessions.isEmpty()) "还没有会话，点击右上角新建" else "没有找到匹配的会话",
+                        color = FuturePalette.Muted,
+                        fontSize = 12.sp,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 28.dp),
+                    )
+                }
+                visibleSessions.forEach { session ->
                     Row(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
                             .background(if (session.id == activeSessionId) Color(0x333F3971) else Color(0x171A2030))
