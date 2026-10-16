@@ -11,6 +11,8 @@ enum class MessageRole {
     TOOL,
 }
 
+enum class MessageStatus { SENT, GENERATING, FAILED, CANCELLED }
+
 /**
  * 聊天消息（纯 Kotlin，不依赖 Android / 数据库 / 具体 AI 服务商）。
  *
@@ -26,6 +28,7 @@ data class ChatMessage(
     val role: MessageRole,
     val content: String,
     val createdAt: Instant = Instant.now(),
+    val status: MessageStatus = MessageStatus.SENT,
 ) {
     init {
         require(id.isNotBlank()) { "message id must not be blank" }

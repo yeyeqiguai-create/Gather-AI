@@ -25,7 +25,7 @@ feature ──▶ domain ◀── data
 ## 本地聊天记录
 
 - `domain.chat.ChatHistoryRepository` 定义当前会话历史的读写边界。
-- `data.chat.FileChatHistoryRepository` 使用应用私有目录中的 JSON 文件保存用户与 AI 文本消息；读写通过 IO dispatcher 执行，写入先落临时文件，损坏记录以空会话恢复并向用户提示。
+- `data.chat.FileChatHistoryRepository` 使用应用私有目录中的 JSON 文件保存用户与 AI 文本消息及发送状态；读写通过 IO dispatcher 执行，写入经临时文件替换，损坏记录以空会话恢复并向用户提示。旧记录缺少状态字段时按成功消息读取。
 - 聊天记录不包含 AI 配置、API Key 或 Authorization Header；API 凭据仍只由 `SecureKeyStore` 管理。
 
 - `feature → domain`：界面只调用用例/模型。

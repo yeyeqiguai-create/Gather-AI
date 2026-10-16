@@ -2,6 +2,7 @@ package com.tim.futureai.data.chat
 
 import com.tim.futureai.domain.model.ChatMessage
 import com.tim.futureai.domain.model.MessageRole
+import com.tim.futureai.domain.model.MessageStatus
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -20,6 +21,7 @@ class FileChatHistoryRepositoryTest {
             val messages = listOf(
                 ChatMessage(id = "u1", sessionId = "current", role = MessageRole.USER, content = "你好", createdAt = Instant.parse("2026-01-01T00:00:00Z")),
                 ChatMessage(id = "a1", sessionId = "current", role = MessageRole.ASSISTANT, content = "你好！", createdAt = Instant.parse("2026-01-01T00:00:01Z")),
+                ChatMessage(id = "u2", sessionId = "current", role = MessageRole.USER, content = "稍后重试", createdAt = Instant.parse("2026-01-01T00:00:02Z"), status = MessageStatus.FAILED),
             )
             assertTrue(repo.save(messages))
             assertEquals(messages, repo.load().messages)

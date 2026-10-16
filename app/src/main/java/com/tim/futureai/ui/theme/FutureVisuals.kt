@@ -150,6 +150,21 @@ fun FutureGlyph(
                 line(15.5f, 18.5f, 22.5f, 18.5f, 1.4f)
             }
             "stop" -> drawRoundRect(tint, topLeft = point(6f, 6f), size = androidx.compose.ui.geometry.Size(12f * unit, 12f * unit), cornerRadius = androidx.compose.ui.geometry.CornerRadius(2f * unit))
+            "copy" -> {
+                drawRoundRect(tint, topLeft = point(8f, 4f), size = androidx.compose.ui.geometry.Size(12f * unit, 14f * unit), cornerRadius = androidx.compose.ui.geometry.CornerRadius(2f * unit), style = Stroke(1.7f * unit))
+                drawRoundRect(tint, topLeft = point(4f, 7f), size = androidx.compose.ui.geometry.Size(12f * unit, 14f * unit), cornerRadius = androidx.compose.ui.geometry.CornerRadius(2f * unit), style = Stroke(1.7f * unit))
+            }
+            "retry" -> {
+                val path = Path().apply {
+                    moveTo(20f * unit, 10f * unit)
+                    cubicTo(19f * unit, 5f * unit, 14f * unit, 3f * unit, 9f * unit, 5f * unit)
+                    cubicTo(4f * unit, 7f * unit, 3f * unit, 13f * unit, 6f * unit, 17f * unit)
+                    cubicTo(9f * unit, 21f * unit, 16f * unit, 21f * unit, 19f * unit, 16f * unit)
+                }
+                drawPath(path, tint, style = Stroke(1.8f * unit, cap = StrokeCap.Round))
+                line(20f, 4f, 20f, 10f, 1.8f)
+                line(20f, 10f, 14f, 10f, 1.8f)
+            }
             "check" -> {
                 drawCircle(tint, 9f * unit, center = point(12f, 12f), style = Stroke(1.7f * unit))
                 line(7.5f, 12f, 10.5f, 15f, 1.8f)

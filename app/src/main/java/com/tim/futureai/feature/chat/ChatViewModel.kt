@@ -6,6 +6,7 @@ import com.tim.futureai.domain.ai.AiProvider
 import com.tim.futureai.domain.chat.ChatHistoryRepository
 import com.tim.futureai.domain.model.ChatMessage
 import com.tim.futureai.domain.model.MessageRole
+import com.tim.futureai.domain.model.MessageStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelChildren
@@ -30,13 +31,18 @@ class ChatViewModel(
     var onStateChanged: ((ChatUiState) -> Unit)? = null
 
     private var sendJob: Job? = null
+    private var activeUserIndex: Int? = null
+    private var activeAssistantIndex: Int? = null
 
     init {
         if (historyRepository != null) scope.launch {
             val loaded = runCatching { historyRepository.load() }.getOrNull()
             val messages = loaded?.messages.orEmpty()
                 .filter { it.role == MessageRole.USER || it.role == MessageRole.ASSISTANT }
-                .map { ChatBubble(it.role, it.content) }
+                .mapIndexed { index, message ->
+                    val status = if (message.status == MessageStatus.GENERATING) MessageStatus.FAILED else message.status
+                    ChatBubble(message.role, message.content, status)
+                }
             setState(_state.copy(
                 messages = messages,
                 isHistoryLoading = false,
@@ -58,7 +64,8 @@ class ChatViewModel(
             ChatMessage(sessionId = "ui", role = it.role, content = it.text)
         } + ChatMessage(sessionId = "ui", role = MessageRole.USER, content = current.inputText.trim())
         // 先把用户消息上屏（trim 后），再发起请求。
-        val userBubble = ChatBubble(role = MessageRole.USER, text = current.inputText.trim())
+        val userIndex = current.messages.size
+        val userBubble = ChatBubble(role = MessageRole.USER, text = current.inputText.trim(), status = MessageStatus.GENERATING)
         val pending = current.copy(
             messages = current.messages + userBubble,
             inputText = "",
@@ -66,23 +73,84 @@ class ChatViewModel(
             notice = null,
         )
         setState(pending)
-        sendJob = scope.launch {
-            persist(pending.messages)
-            var s = pending
-            when (val result = provider.complete(history)) {
-                is AppResult.Success -> s = s.addAssistantReply(result.data).finishSending()
-                is AppResult.Failure -> s = s.finishSending(notice = result.error.toUserMessage())
-            }
-            setState(s)
-            persist(s.messages, showError = s.notice == null)
+        activeUserIndex = userIndex
+        activeAssistantIndex = null
+        sendJob = scope.launch { runRequest(history, userIndex, null) }
+    }
+
+    /** Regenerates the selected assistant reply using the preceding user message and context. */
+    fun regenerate(assistantIndex: Int) {
+        val current = _state
+        if (current.isLoading || current.isHistoryLoading || assistantIndex !in current.messages.indices) return
+        if (current.messages[assistantIndex].role != MessageRole.ASSISTANT) return
+        val userIndex = (assistantIndex - 1 downTo 0).firstOrNull { current.messages[it].role == MessageRole.USER } ?: return
+        val history = current.messages.take(userIndex + 1).map { ChatMessage(sessionId = "ui", role = it.role, content = it.text) }
+        setState(current.copy(isLoading = true, notice = null))
+        activeUserIndex = userIndex
+        activeAssistantIndex = assistantIndex
+        sendJob = scope.launch { runRequest(history, userIndex, assistantIndex) }
+    }
+
+    /** Retries a failed or cancelled user message without adding a duplicate. */
+    fun retry(userIndex: Int) {
+        val current = _state
+        if (current.isLoading || current.isHistoryLoading || userIndex !in current.messages.indices) return
+        if (userIndex != current.messages.lastIndex) return
+        val user = current.messages[userIndex]
+        if (user.role != MessageRole.USER || user.status !in setOf(MessageStatus.FAILED, MessageStatus.CANCELLED)) return
+        val history = current.messages.take(userIndex + 1).map { ChatMessage(sessionId = "ui", role = it.role, content = it.text) }
+        val next = current.messages.toMutableList().also { it[userIndex] = user.copy(status = MessageStatus.GENERATING) }
+        setState(current.copy(messages = next, isLoading = true, notice = null))
+        activeUserIndex = userIndex
+        activeAssistantIndex = null
+        sendJob = scope.launch { runRequest(history, userIndex, null) }
+    }
+
+    private suspend fun runRequest(history: List<ChatMessage>, userIndex: Int, assistantIndex: Int?) {
+        persist(_state.messages)
+        val result = try {
+            provider.complete(history)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            return
+        } catch (_: Exception) {
+            AppResult.failure(AppError.Unknown("请求失败，请重试"))
         }
+        val messages = _state.messages.toMutableList()
+        var notice: String? = null
+        when (result) {
+            is AppResult.Success -> {
+                messages[userIndex] = messages[userIndex].copy(status = MessageStatus.SENT)
+                if (assistantIndex == null) messages.add(ChatBubble(MessageRole.ASSISTANT, result.data))
+                else messages[assistantIndex] = messages[assistantIndex].copy(text = result.data, status = MessageStatus.SENT)
+            }
+            is AppResult.Failure -> {
+                if (assistantIndex == null) messages[userIndex] = messages[userIndex].copy(
+                    status = if (result.error is AppError.Cancelled) MessageStatus.CANCELLED else MessageStatus.FAILED,
+                )
+                notice = result.error.toUserMessage()
+            }
+        }
+        setState(_state.copy(messages = messages, isLoading = false, notice = notice))
+        persist(messages, showError = notice == null)
+        activeUserIndex = null
+        activeAssistantIndex = null
+        sendJob = null
     }
 
     /** 取消进行中的请求。 */
     fun cancel() {
+        val userIndex = activeUserIndex
+        val assistantIndex = activeAssistantIndex
         sendJob?.cancel()
         sendJob = null
-        setState(_state.finishSending(notice = "已取消请求"))
+        activeUserIndex = null
+        activeAssistantIndex = null
+        val messages = _state.messages.toMutableList()
+        if (assistantIndex == null && userIndex != null && userIndex in messages.indices) {
+            messages[userIndex] = messages[userIndex].copy(status = MessageStatus.CANCELLED)
+        }
+        setState(_state.copy(messages = messages, isLoading = false, notice = "已取消请求"))
+        historyRepository?.let { repo -> scope.launch { persist(messages) } }
     }
 
     /** 清空会话（取消进行中的请求）。 */
@@ -102,7 +170,7 @@ class ChatViewModel(
     private suspend fun persist(messages: List<ChatBubble>, showError: Boolean = true) {
         val repository = historyRepository ?: return
         val saved = runCatching {
-            repository.save(messages.map { ChatMessage(sessionId = "current", role = it.role, content = it.text) })
+            repository.save(messages.map { ChatMessage(sessionId = "current", role = it.role, content = it.text, status = it.status) })
         }.getOrDefault(false)
         if (!saved && showError) setState(_state.copy(notice = "聊天记录保存失败，请检查设备存储空间"))
     }

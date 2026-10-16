@@ -7,8 +7,10 @@ import com.tim.futureai.domain.chat.ChatHistoryLoad
 import com.tim.futureai.domain.chat.ChatHistoryRepository
 import com.tim.futureai.domain.model.ChatMessage
 import com.tim.futureai.domain.model.MessageRole
+import com.tim.futureai.domain.model.MessageStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -164,6 +166,95 @@ class ChatViewModelTest {
         val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("ok")), historyRepository = history)
         assertFalse(vm.state.isHistoryLoading)
         assertTrue(vm.state.notice!!.contains("本地聊天记录读取失败"))
+    }
+
+    @Test
+    fun regenerateReplacesReplyWithoutDuplicatingAndUsesOriginalQuestion() {
+        val history = MemoryHistory(listOf(
+            ChatMessage(id = "u", sessionId = "current", role = MessageRole.USER, content = "原问题"),
+            ChatMessage(id = "a", sessionId = "current", role = MessageRole.ASSISTANT, content = "旧回答"),
+        ))
+        val provider = FakeProvider(AppResult.success("新回答"))
+        val vm = ChatViewModel(RecordingScope(), provider, historyRepository = history)
+        vm.regenerate(1)
+        assertEquals(listOf("原问题"), provider.received.single().map { it.content })
+        assertEquals(listOf("原问题", "新回答"), vm.state.messages.map { it.text })
+        assertEquals(listOf("原问题", "新回答"), history.messages.map { it.content })
+    }
+
+    @Test
+    fun failedRegenerationPreservesExistingReplyAndHistory() {
+        val history = MemoryHistory(listOf(
+            ChatMessage(id = "u", sessionId = "current", role = MessageRole.USER, content = "原问题"),
+            ChatMessage(id = "a", sessionId = "current", role = MessageRole.ASSISTANT, content = "旧回答"),
+        ))
+        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.failure(AppError.Network("offline"))), historyRepository = history)
+        vm.regenerate(1)
+        assertEquals("旧回答", vm.state.messages[1].text)
+        assertEquals("旧回答", history.messages[1].content)
+        assertFalse(vm.state.isLoading)
+        assertTrue(vm.state.notice!!.contains("网络错误"))
+    }
+
+    @Test
+    fun retryReusesFailedUserMessageInsteadOfAppendingDuplicate() {
+        val failed = ChatUiState(messages = listOf(ChatBubble(MessageRole.USER, "问题", MessageStatus.FAILED)))
+        val retryVm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("恢复成功")), failed)
+        retryVm.retry(0)
+        assertEquals(listOf("问题", "恢复成功"), retryVm.state.messages.map { it.text })
+    }
+
+    @Test
+    fun cancelMarksUserMessageCancelledAndDoesNotCreateReply() {
+        var cancelled = false
+        val history = MemoryHistory()
+        val provider = object : AiProvider {
+            override suspend fun complete(messages: List<ChatMessage>): AppResult<String> = suspendCancellableCoroutine { continuation ->
+                continuation.invokeOnCancellation { cancelled = true }
+            }
+        }
+        val vm = ChatViewModel(RecordingScope(), provider, historyRepository = history)
+        vm.updateInput("停止我")
+        vm.send()
+        vm.cancel()
+        assertTrue(cancelled)
+        assertEquals(1, vm.state.messages.size)
+        assertEquals(MessageStatus.CANCELLED, vm.state.messages.single().status)
+        assertEquals(MessageStatus.CANCELLED, history.messages.single().status)
+        assertFalse(vm.state.isLoading)
+    }
+
+    @Test
+    fun interruptedGenerationRestoresAsRetryableFailure() {
+        val history = MemoryHistory(listOf(
+            ChatMessage(sessionId = "current", role = MessageRole.USER, content = "中断的问题", status = MessageStatus.GENERATING),
+        ))
+        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("回复")), historyRepository = history)
+        assertEquals(MessageStatus.FAILED, vm.state.messages.single().status)
+        vm.retry(0)
+        assertEquals(listOf("中断的问题", "回复"), vm.state.messages.map { it.text })
+    }
+
+    @Test
+    fun providerExceptionBecomesRetryableFailureWithoutCrashing() {
+        val vm = newVm(object : AiProvider {
+            override suspend fun complete(messages: List<ChatMessage>): AppResult<String> = error("transport failure")
+        })
+        vm.updateInput("检查异常")
+        vm.send()
+        assertFalse(vm.state.isLoading)
+        assertEquals(MessageStatus.FAILED, vm.state.messages.single().status)
+        assertTrue(vm.state.notice!!.contains("请求失败"))
+        assertTrue(scope.caught.isEmpty())
+    }
+
+    @Test
+    fun copyHelperCopiesCompleteTextAndSignalsSuccess() {
+        var copied: String? = null
+        var feedback = false
+        copyMessageText("第一行\n完整的第二行", { copied = it }) { feedback = true }
+        assertEquals("第一行\n完整的第二行", copied)
+        assertTrue(feedback)
     }
 
     @Test

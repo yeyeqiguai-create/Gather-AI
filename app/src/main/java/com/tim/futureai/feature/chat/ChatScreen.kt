@@ -37,6 +37,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -56,10 +58,16 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tim.futureai.domain.model.MessageRole
+import com.tim.futureai.domain.model.MessageStatus
 import com.tim.futureai.ui.theme.FutureBackdrop
 import com.tim.futureai.ui.theme.FutureGlyph
 import com.tim.futureai.ui.theme.FuturePalette
 import com.tim.futureai.ui.theme.glassPanel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 
 private val ExamplePrompts = listOf(
     "把复杂概念讲得简单一点",
@@ -76,6 +84,8 @@ fun ChatScreen(
     onSettingsClick: () -> Unit = {},
     onCancel: () -> Unit = {},
     onExamplePrompt: (String) -> Unit = onInputChanged,
+    onRegenerate: (Int) -> Unit = {},
+    onRetry: (Int) -> Unit = {},
     isAiConfigured: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
@@ -114,6 +124,8 @@ fun ChatScreen(
                     Conversation(
                         messages = state.messages,
                         isLoading = state.isLoading,
+                        onRegenerate = onRegenerate,
+                        onRetry = onRetry,
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                     )
                 }
@@ -245,7 +257,7 @@ private fun PromptCard(text: String, index: Int, onClick: () -> Unit) {
 }
 
 @Composable
-private fun Conversation(messages: List<ChatBubble>, isLoading: Boolean, modifier: Modifier = Modifier) {
+private fun Conversation(messages: List<ChatBubble>, isLoading: Boolean, onRegenerate: (Int) -> Unit, onRetry: (Int) -> Unit, modifier: Modifier = Modifier) {
     val listState = rememberLazyListState()
     val count = messages.size + if (isLoading) 1 else 0
     LaunchedEffect(count) { if (count > 0) listState.animateScrollToItem(count - 1) }
@@ -255,14 +267,17 @@ private fun Conversation(messages: List<ChatBubble>, isLoading: Boolean, modifie
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        itemsIndexed(messages) { _, message -> MessageBubble(message) }
+        itemsIndexed(messages) { index, message -> MessageBubble(message, index, index == messages.lastIndex, onRegenerate, onRetry) }
         if (isLoading) item { ThinkingBubble() }
     }
 }
 
 @Composable
-private fun MessageBubble(message: ChatBubble) {
+private fun MessageBubble(message: ChatBubble, index: Int, canRetry: Boolean, onRegenerate: (Int) -> Unit, onRetry: (Int) -> Unit) {
     val isUser = message.role == MessageRole.USER
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var copied by remember(message.text) { mutableStateOf(false) }
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
@@ -283,6 +298,35 @@ private fun MessageBubble(message: ChatBubble) {
         ) {
             Text(if (isUser) "你" else "GATHER AI", color = if (isUser) Color(0xFFDCD5FF) else FuturePalette.Cyan, fontSize = 9.sp, letterSpacing = 1.15.sp, fontWeight = FontWeight.SemiBold)
             Text(message.text, color = FuturePalette.Text, fontSize = 14.sp, lineHeight = 22.sp)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = {
+                    copyMessageText(message.text, { text ->
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Gather AI message", text))
+                    }) {
+                        copied = true
+                        scope.launch { delay(1400); copied = false }
+                    }
+                }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
+                    FutureGlyph("copy", tint = FuturePalette.Muted, size = 14.dp)
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (copied) "已复制" else "复制", color = if (copied) FuturePalette.Cyan else FuturePalette.Muted, fontSize = 10.sp)
+                }
+                if (!isUser) TextButton(onClick = { onRegenerate(index) }, enabled = message.status != MessageStatus.GENERATING, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
+                    FutureGlyph("retry", tint = FuturePalette.VioletBright, size = 14.dp)
+                    Spacer(Modifier.width(4.dp))
+                    Text("重新生成", color = FuturePalette.VioletBright, fontSize = 10.sp)
+                }
+                if (isUser && canRetry && message.status in setOf(MessageStatus.FAILED, MessageStatus.CANCELLED)) TextButton(onClick = { onRetry(index) }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
+                    Text("重试", color = FuturePalette.VioletBright, fontSize = 10.sp)
+                }
+            }
+            when (message.status) {
+                MessageStatus.GENERATING -> Text("发送中…", color = FuturePalette.Cyan, fontSize = 10.sp)
+                MessageStatus.FAILED -> Text("发送失败", color = FuturePalette.Danger, fontSize = 10.sp)
+                MessageStatus.CANCELLED -> Text("已停止", color = FuturePalette.Muted, fontSize = 10.sp)
+                MessageStatus.SENT -> Unit
+            }
         }
     }
 }

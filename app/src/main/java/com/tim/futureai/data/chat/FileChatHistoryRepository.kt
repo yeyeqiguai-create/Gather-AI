@@ -6,6 +6,7 @@ import com.tim.futureai.domain.chat.ChatHistoryLoad
 import com.tim.futureai.domain.chat.ChatHistoryRepository
 import com.tim.futureai.domain.model.ChatMessage
 import com.tim.futureai.domain.model.MessageRole
+import com.tim.futureai.domain.model.MessageStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -14,6 +15,8 @@ import java.time.Instant
 /** JSON file storage for non-secret chat text. Writes use a temporary file and atomic rename. */
 class FileChatHistoryRepository(private val file: File) : ChatHistoryRepository {
     override suspend fun load(): ChatHistoryLoad = withContext(Dispatchers.IO) {
+        val backup = File(file.parentFile, "${file.name}.bak")
+        if (!file.exists() && backup.exists()) backup.renameTo(file)
         if (!file.exists()) return@withContext ChatHistoryLoad(emptyList())
         try {
             val root = JsonMini.parse(file.readText()).asObject() ?: error("Invalid history")
@@ -26,6 +29,7 @@ class FileChatHistoryRepository(private val file: File) : ChatHistoryRepository 
                     role = MessageRole.valueOf(fields.string("role")),
                     content = fields.string("content"),
                     createdAt = Instant.parse(fields.string("createdAt")),
+                    status = fields["status"]?.asString()?.let(MessageStatus::valueOf) ?: MessageStatus.SENT,
                 )
             }
             ChatHistoryLoad(messages)
@@ -43,6 +47,7 @@ class FileChatHistoryRepository(private val file: File) : ChatHistoryRepository 
                     "\"role\":" + JsonMini.quote(message.role.name),
                     "\"content\":" + JsonMini.quote(message.content),
                     "\"createdAt\":" + JsonMini.quote(message.createdAt.toString()),
+                    "\"status\":" + JsonMini.quote(message.status.name),
                 ).joinToString(",") + "}"
             }
             file.parentFile?.mkdirs()

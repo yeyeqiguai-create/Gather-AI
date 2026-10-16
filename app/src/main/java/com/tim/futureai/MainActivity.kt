@@ -117,6 +117,8 @@ class MainActivity : ComponentActivity() {
                         onSend = viewModel::send,
                         onDismissNotice = viewModel::dismissNotice,
                         onCancel = viewModel::cancel,
+                        onRegenerate = viewModel::regenerate,
+                        onRetry = viewModel::retry,
                         onExamplePrompt = viewModel::updateInput,
                         onSettingsClick = {
                             settings = settingsManager.load()
