@@ -1,6 +1,11 @@
 package com.tim.futureai
 
+import android.content.Intent
 import android.os.Bundle
+import android.os.Build
+import android.os.SystemClock
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.SystemBarStyle
@@ -10,17 +15,23 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Box
 import androidx.core.view.WindowCompat
+import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import com.tim.futureai.core.security.SecureKeyStore
 import com.tim.futureai.data.ai.OpenAiCompatProvider
 import com.tim.futureai.data.chat.FileChatSessionsRepository
+import com.tim.futureai.data.update.GitHubUpdateRepository
+import com.tim.futureai.feature.update.UpdateCheckResult
 import com.tim.futureai.domain.ai.AiChatConfig
 import com.tim.futureai.feature.chat.ChatScreen
 import com.tim.futureai.feature.chat.ChatUiState
@@ -30,6 +41,9 @@ import com.tim.futureai.feature.settings.AiSettingsScreen
 import com.tim.futureai.feature.settings.SettingsSaveResult
 import com.tim.futureai.ui.theme.FuturePalette
 import java.io.File
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 private val FutureColors = darkColorScheme(
     primary = FuturePalette.Violet,
@@ -75,6 +89,12 @@ class MainActivity : ComponentActivity() {
             File(filesDir, "chat-history.json"),
         )
         val viewModel = ChatViewModel(lifecycleScope, provider, sessionsRepository = sessionsRepository)
+        val appInfo = packageManager.getPackageInfo(packageName, 0)
+        val updateRepository = GitHubUpdateRepository(
+            currentVersionName = appInfo.versionName.orEmpty(),
+            currentVersionCode = if (Build.VERSION.SDK_INT >= 28) appInfo.longVersionCode.toInt() else appInfo.versionCode,
+            isInternalBuild = applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0,
+        )
 
         setContent {
             MaterialTheme(colorScheme = FutureColors) {
@@ -85,6 +105,32 @@ class MainActivity : ComponentActivity() {
                 var isAiConfigured by remember { mutableStateOf(initialSettings.isConfigured) }
                 var settingsMessage by remember { mutableStateOf<String?>(null) }
                 var settingsMessageIsError by remember { mutableStateOf(false) }
+                var updateResult by remember { mutableStateOf<UpdateCheckResult?>(null) }
+                var updateChecking by remember { mutableStateOf(false) }
+                var updateMessage by remember { mutableStateOf<String?>(null) }
+                var downloadProgress by remember { mutableStateOf<Int?>(null) }
+                var downloadedApk by remember { mutableStateOf<File?>(null) }
+                var downloadJob by remember { mutableStateOf<Job?>(null) }
+                val composeScope = rememberCoroutineScope()
+                val lastUpdateCheck = remember { mutableLongStateOf(0L) }
+                val checkForUpdates: () -> Unit = {
+                    val now = SystemClock.elapsedRealtime()
+                    when {
+                        updateChecking -> Unit
+                        lastUpdateCheck.longValue != 0L && now - lastUpdateCheck.longValue < 60_000L ->
+                            updateMessage = "刚检查过更新，请稍后再试"
+                        else -> {
+                            lastUpdateCheck.longValue = now
+                            updateChecking = true
+                            updateMessage = null
+                            composeScope.launch {
+                                updateResult = updateRepository.check()
+                                updateChecking = false
+                            }
+                        }
+                    }
+                }
+                LaunchedEffect(Unit) { checkForUpdates() }
                 viewModel.onStateChanged = { uiState = it }
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     if (showSettings) {
@@ -112,6 +158,43 @@ class MainActivity : ComponentActivity() {
                             },
                             onBack = { showSettings = false },
                             messageIsError = settingsMessageIsError,
+                            updateResult = updateResult,
+                            updateChecking = updateChecking,
+                            updateMessage = updateMessage,
+                            downloadProgress = downloadProgress,
+                            onCheckUpdates = checkForUpdates,
+                            onDownloadUpdate = {
+                                val release = (updateResult as? UpdateCheckResult.Available)?.release ?: return@AiSettingsScreen
+                                downloadProgress = 0
+                                updateMessage = "正在下载并校验 APK…"
+                                downloadJob = composeScope.launch {
+                                    try {
+                                        downloadedApk = updateRepository.downloadAndVerify(this@MainActivity, release) { progress ->
+                                            composeScope.launch { downloadProgress = progress }
+                                        }
+                                        downloadProgress = 100
+                                        updateMessage = "SHA-256 与签名校验通过"
+                                    } catch (_: CancellationException) {
+                                        downloadProgress = null
+                                        updateMessage = "下载已取消"
+                                    } catch (error: Exception) {
+                                        downloadProgress = null
+                                        updateMessage = error.message ?: "APK 下载或校验失败，可重试"
+                                    }
+                                }
+                            },
+                            onCancelDownload = { downloadJob?.cancel() },
+                            onInstallUpdate = {
+                                val apk = downloadedApk ?: return@AiSettingsScreen
+                                if (Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
+                                    startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+                                    updateMessage = "请允许 Gather AI 安装未知应用，返回后再次点击安装"
+                                } else runCatching {
+                                    val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.fileprovider", apk)
+                                    startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
+                                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
+                                }.onFailure { updateMessage = "无法启动系统安装器，请重试" }
+                            },
                             modifier = Modifier.fillMaxSize(),
                         )
                     } else ChatScreen(

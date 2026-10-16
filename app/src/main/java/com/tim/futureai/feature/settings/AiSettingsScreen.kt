@@ -50,6 +50,8 @@ import com.tim.futureai.ui.theme.FutureBackdrop
 import com.tim.futureai.ui.theme.FutureGlyph
 import com.tim.futureai.ui.theme.FuturePalette
 import com.tim.futureai.ui.theme.glassPanel
+import com.tim.futureai.feature.update.UpdateCheckResult
+import com.tim.futureai.feature.update.UpdateSection
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,6 +63,14 @@ fun AiSettingsScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     messageIsError: Boolean = false,
+    updateResult: UpdateCheckResult? = null,
+    updateChecking: Boolean = false,
+    updateMessage: String? = null,
+    downloadProgress: Int? = null,
+    onCheckUpdates: () -> Unit = {},
+    onDownloadUpdate: () -> Unit = {},
+    onCancelDownload: () -> Unit = {},
+    onInstallUpdate: () -> Unit = {},
 ) {
     var showApiKey by remember { mutableStateOf(false) }
     FutureBackdrop(modifier) {
@@ -186,6 +196,16 @@ fun AiSettingsScreen(
                         }
                     }
                 }
+                UpdateSection(
+                    result = updateResult,
+                    checking = updateChecking,
+                    message = updateMessage,
+                    downloadProgress = downloadProgress,
+                    onCheck = onCheckUpdates,
+                    onDownload = onDownloadUpdate,
+                    onCancel = onCancelDownload,
+                    onInstall = onInstallUpdate,
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).padding(14.dp),
                     verticalAlignment = Alignment.Top,
