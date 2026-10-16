@@ -31,6 +31,15 @@ class UpdateLogicTest {
         assertTrue(GitHubReleaseParser.parseList(json(prerelease = true), UpdateCheckMode.FORMAL).isEmpty())
     }
 
+    @Test fun targetBetaTagAndVersionCodeParseForInternalClients() {
+        val releaseJson = """[{"draft":false,"prerelease":true,"tag_name":"v0.1.5.01-Revise1-internal-dev","body":"Provider routing\n<div hidden>\nversionCode: 13\n</div>","published_at":"2026-10-16T00:00:00Z","assets":[]}]"""
+        val release = GitHubReleaseParser.parseList(releaseJson, UpdateCheckMode.INTERNAL_DEV).single()
+        assertEquals("v0.1.5.01 (Revise1)", release.versionName)
+        assertEquals(13, release.versionCode)
+        assertEquals(ReleaseChannel.INTERNAL_DEV, release.channel)
+        assertTrue(GitHubReleaseParser.parseList(releaseJson, UpdateCheckMode.FORMAL).isEmpty())
+    }
+
     @Test fun missingApkIsReportedAndDownloadErrorsAreFailures() {
         assertEquals(UpdateCheckResult.NoInstallableApk, UpdateSelector.select(listOf(release("v0.1.3.07 (Revise1)", 11, apk = null)), "v0.1.3.06 (Revise1)", 10, UpdateCheckMode.INTERNAL_DEV))
         try { DownloadResponsePolicy.requireSuccess(503); throw AssertionError("expected failure") } catch (_: IOException) { }

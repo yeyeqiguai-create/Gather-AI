@@ -42,7 +42,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import com.tim.futureai.core.security.SecureKeyStore
-import com.tim.futureai.data.ai.OpenAiCompatProvider
+import com.tim.futureai.data.ai.AiProviderRegistry
 import com.tim.futureai.data.chat.FileChatSessionsRepository
 import com.tim.futureai.data.update.GitHubUpdateRepository
 import com.tim.futureai.data.usage.FileUsageRepository
@@ -55,12 +55,14 @@ import com.tim.futureai.feature.update.UpdateRelease
 import com.tim.futureai.feature.update.UpdateInstallFlow
 import com.tim.futureai.feature.update.StartupUpdateCheck
 import com.tim.futureai.domain.ai.AiChatConfig
+import com.tim.futureai.domain.ai.AiSettings
+import com.tim.futureai.domain.ai.ProviderProtocol
+import com.tim.futureai.domain.ai.SettingsSaveResult
 import com.tim.futureai.feature.chat.ChatScreen
 import com.tim.futureai.feature.chat.ChatUiState
 import com.tim.futureai.feature.chat.ChatViewModel
-import com.tim.futureai.feature.settings.AiSettingsManager
+import com.tim.futureai.data.settings.AiSettingsManager
 import com.tim.futureai.feature.settings.AiSettingsScreen
-import com.tim.futureai.feature.settings.SettingsSaveResult
 import com.tim.futureai.domain.usage.UsageSnapshot
 import com.tim.futureai.platform.files.AttachmentImporter
 import com.tim.futureai.platform.speech.SpeechController
@@ -126,7 +128,8 @@ class MainActivity : ComponentActivity() {
         // 组装依赖：安全存储 → 配置读取 → Provider → ViewModel。
         val keyStore = SecureKeyStore(this)
         val settingsManager = AiSettingsManager(keyStore)
-        val provider = OpenAiCompatProvider(configProvider = { settingsManager.configFor(null) })
+        val providerRegistry = AiProviderRegistry()
+        val provider = providerRegistry.create(ProviderProtocol.OPENAI_COMPATIBLE) { settingsManager.configFor(null) }
         val sessionsRepository = FileChatSessionsRepository(
             File(filesDir, "chat-sessions.json"),
             File(filesDir, "chat-history.json"),
@@ -136,8 +139,15 @@ class MainActivity : ComponentActivity() {
             lifecycleScope,
             provider,
             sessionsRepository = sessionsRepository,
-            providerForProfileId = { profileId -> OpenAiCompatProvider({ settingsManager.configFor(profileId) }) },
-            defaultModelProfileId = { settingsManager.load().takeIf { it.isConfigured }?.id },
+            providerForProfileId = { profileId ->
+                val protocol = settingsManager.loadProfile(profileId ?: settingsManager.load().id)?.providerProtocol ?: ProviderProtocol.OPENAI_COMPATIBLE
+                providerRegistry.create(protocol) { settingsManager.configFor(profileId) }
+            },
+            providerForModel = { profileId, modelId ->
+                val protocol = settingsManager.loadProfile(profileId)?.providerProtocol ?: ProviderProtocol.OPENAI_COMPATIBLE
+                providerRegistry.create(protocol) { settingsManager.configFor(profileId, modelId) }
+            },
+            defaultModelProfileId = { settingsManager.load().takeIf { it.isAvailableForRouting }?.id },
             usageRepository = usageRepository,
         )
         viewModel.setModelChoices(settingsManager.profiles())
@@ -149,7 +159,7 @@ class MainActivity : ComponentActivity() {
                 var uiState by remember { mutableStateOf<ChatUiState>(ChatUiState()) }
                 var showSettings by remember { mutableStateOf(false) }
                 var settings by remember { mutableStateOf(initialSettings) }
-                var isAiConfigured by remember { mutableStateOf(initialSettings.isConfigured) }
+                var isAiConfigured by remember { mutableStateOf(initialSettings.isAvailableForRouting) }
                 var settingsMessage by remember { mutableStateOf<String?>(null) }
                 var settingsMessageIsError by remember { mutableStateOf(false) }
                 var updateResult by remember { mutableStateOf<UpdateCheckResult?>(null) }
@@ -448,7 +458,7 @@ class MainActivity : ComponentActivity() {
                     if (installWhenReady) {
                         settings = settingsManager.load()
                         profiles = settingsManager.profiles()
-                        isAiConfigured = settings.isConfigured
+                        isAiConfigured = settingsManager.profiles().any { it.isAvailableForRouting }
                         composeScope.launch { usage = usageRepository.load() }
                         showSettings = true
                     }
@@ -498,7 +508,7 @@ class MainActivity : ComponentActivity() {
                                         viewModel.setModelChoices(profiles)
                                         settingsMessage = "配置已安全保存"
                                         settingsMessageIsError = false
-                                        isAiConfigured = true
+                                        isAiConfigured = settingsManager.profiles().any { it.isAvailableForRouting }
                                     }
                                     is SettingsSaveResult.Invalid -> {
                                         settingsMessage = result.message
@@ -537,11 +547,11 @@ class MainActivity : ComponentActivity() {
                                 settings = settingsManager.loadProfile(id) ?: settings
                                 profiles = settingsManager.profiles()
                                 viewModel.setModelChoices(profiles)
-                                isAiConfigured = settings.isConfigured
+                                isAiConfigured = settingsManager.profiles().any { it.isAvailableForRouting }
                                 settingsMessage = null
                             },
                             onCreateProfile = {
-                                settings = com.tim.futureai.feature.settings.AiSettings(
+                                settings = AiSettings(
                                     id = UUID.randomUUID().toString(), name = "新配置",
                                 )
                                 settingsMessage = null
@@ -550,14 +560,14 @@ class MainActivity : ComponentActivity() {
                                 if (settingsManager.deleteProfile(id)) {
                                     profiles = settingsManager.profiles()
                                     settings = settingsManager.load()
-                                    isAiConfigured = settings.isConfigured
+                                    isAiConfigured = settingsManager.profiles().any { it.isAvailableForRouting }
                                     viewModel.setModelChoices(profiles)
                                     settingsMessage = "配置已删除"
                                     settingsMessageIsError = false
                                 }
                             },
                             onTestConnection = {
-                                val saved = settingsManager.configFor(settings.id)
+                                val saved = settingsManager.configFor(settings.id, settings.model, allowDisabled = true)
                                 val testConfig = AiChatConfig(
                                     baseUrl = settings.baseUrl,
                                     model = settings.model,
@@ -566,7 +576,7 @@ class MainActivity : ComponentActivity() {
                                 settingsMessage = "正在测试连接…"
                                 settingsMessageIsError = false
                                 composeScope.launch {
-                                    when (val result = OpenAiCompatProvider({ testConfig }).testConnection()) {
+                                    when (val result = providerRegistry.create(settings.providerProtocol) { testConfig }.testConnection()) {
                                         is com.tim.futureai.core.common.AppResult.Success -> {
                                             settingsMessage = "连接成功，服务商可访问"
                                             settingsMessageIsError = false
@@ -595,6 +605,7 @@ class MainActivity : ComponentActivity() {
                         onToggleSessionPinned = viewModel::toggleSessionPinned,
                         onDeleteSession = viewModel::deleteSession,
                         onModelSelected = viewModel::selectModel,
+                        onNextMessageModelSelected = viewModel::selectModelForNextMessage,
                         onPickAttachments = {
                             attachmentPicker.launch(arrayOf(
                                 "image/*", "text/*", "application/pdf",
@@ -649,7 +660,7 @@ class MainActivity : ComponentActivity() {
                             settings = settingsManager.load()
                             profiles = settingsManager.profiles()
                             composeScope.launch { usage = usageRepository.load() }
-                            isAiConfigured = settings.isConfigured
+                            isAiConfigured = settingsManager.profiles().any { it.isAvailableForRouting }
                             settingsMessage = null
                             showSettings = true
                         },

@@ -110,6 +110,7 @@ fun ChatScreen(
     onToggleSessionPinned: (String) -> Boolean = { false },
     onDeleteSession: (String) -> Boolean = { false },
     onModelSelected: (String?) -> Unit = {},
+    onNextMessageModelSelected: (String) -> Unit = {},
     onPickAttachments: () -> Unit = {},
     onRemoveAttachment: (String) -> Unit = {},
     onListen: () -> Unit = {},
@@ -127,7 +128,7 @@ fun ChatScreen(
             modifier = Modifier.fillMaxSize(),
             containerColor = Color.Transparent,
             contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
-            topBar = { BrandBar(state.sessionTitle, state.modelChoices, state.selectedModelId, onModelSelected, onExportSession, { showSessionManager = true }, onSettingsClick) },
+            topBar = { BrandBar(state.sessionTitle, state.modelChoices, state.selectedModelId, onModelSelected, onNextMessageModelSelected, onExportSession, { showSessionManager = true }, onSettingsClick, state.activeModelExplanation) },
             bottomBar = {
                 Composer(
                     text = state.inputText,
@@ -201,9 +202,11 @@ private fun BrandBar(
     modelChoices: List<ChatModelChoice>,
     selectedModelId: String?,
     onModelSelected: (String?) -> Unit,
+    onNextMessageModelSelected: (String) -> Unit,
     onExportSession: () -> Unit,
     onSessionsClick: () -> Unit,
     onSettingsClick: () -> Unit,
+    activeModelExplanation: String? = null,
 ) {
     var modelMenuExpanded by remember { mutableStateOf(false) }
     Row(
@@ -229,11 +232,20 @@ private fun BrandBar(
                         modifier = Modifier.clickable { modelMenuExpanded = true },
                     )
                     DropdownMenu(expanded = modelMenuExpanded, onDismissRequest = { modelMenuExpanded = false }) {
-                        modelChoices.forEach { choice -> DropdownMenuItem(
-                            text = { Text(choice.displayName) },
-                            onClick = { onModelSelected(choice.id); modelMenuExpanded = false },
-                        ) }
+                        modelChoices.forEach { choice ->
+                            DropdownMenuItem(
+                                text = { Text("本会话 · ${choice.displayName}") },
+                                onClick = { onModelSelected(choice.id); modelMenuExpanded = false },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("仅下一条 · ${choice.displayName}") },
+                                onClick = { onNextMessageModelSelected(choice.id); modelMenuExpanded = false },
+                            )
+                        }
                     }
+                }
+                activeModelExplanation?.let { explanation ->
+                    Text(explanation, color = FuturePalette.Muted, fontSize = 8.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
         }

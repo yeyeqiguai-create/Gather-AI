@@ -33,12 +33,52 @@ data class UsageSnapshot(val records: List<UsageRecord> = emptyList()) {
     val completionTokens: Long get() = records.sumOf { it.completionTokens?.toLong() ?: 0L }
     val totalDurationMs: Long get() = records.sumOf { it.durationMs.coerceAtLeast(0) }
 
-    fun estimatedUsd(inputRateByProfile: Map<String, Double?>, outputRateByProfile: Map<String, Double?>): Double? {
-        val estimated = records.map { record ->
-            val id = record.profileId ?: return null
-            record.estimateUsd(inputRateByProfile[id], outputRateByProfile[id]) ?: return null
+    fun byProviderAndModel(prices: Map<UsagePriceKey, ModelUsagePrice> = emptyMap()): List<ProviderModelUsage> = records.groupBy { it.providerName to it.model }
+        .map { (key, grouped) ->
+            val estimates = grouped.map { record ->
+                val profileId = record.profileId
+                val price = profileId?.let { prices[UsagePriceKey(it, record.model)] }
+                price?.let { record.estimateUsd(it.inputUsdPerMillion, it.outputUsdPerMillion) }
+            }
+            ProviderModelUsage.from(key, grouped, estimates.takeIf { it.all { value -> value != null } }?.sumOf { it!! })
         }
-        return estimated.sum()
+        .sortedWith(compareByDescending<ProviderModelUsage> { it.requestCount }.thenBy { it.providerName }.thenBy { it.model })
+
+    fun estimatedUsdByModel(prices: Map<UsagePriceKey, ModelUsagePrice>): Double? =
+        byProviderAndModel(prices).takeIf { groups -> groups.sumOf { it.requestCount } == requestCount && groups.all { it.estimatedUsd != null } }
+            ?.sumOf { it.estimatedUsd!! }
+}
+
+data class UsagePriceKey(val profileId: String, val model: String)
+
+data class ModelUsagePrice(val inputUsdPerMillion: Double?, val outputUsdPerMillion: Double?)
+
+data class ProviderModelUsage(
+    val providerName: String,
+    val model: String,
+    val requestCount: Int,
+    val errorCount: Int,
+    val knownUsageCount: Int,
+    val unknownUsageCount: Int,
+    val promptTokens: Long,
+    val completionTokens: Long,
+    val totalDurationMs: Long,
+    /** Null means one or more calls lacked real usage or configured prices. */
+    val estimatedUsd: Double?,
+) {
+    companion object {
+        internal fun from(key: Pair<String, String>, records: List<UsageRecord>, estimatedUsd: Double?) = ProviderModelUsage(
+            providerName = key.first,
+            model = key.second,
+            requestCount = records.size,
+            errorCount = records.count { it.errorType != null },
+            knownUsageCount = records.count { it.tokenUsage != null },
+            unknownUsageCount = records.count { it.tokenUsage == null },
+            promptTokens = records.sumOf { it.promptTokens?.toLong() ?: 0L },
+            completionTokens = records.sumOf { it.completionTokens?.toLong() ?: 0L },
+            totalDurationMs = records.sumOf { it.durationMs.coerceAtLeast(0) },
+            estimatedUsd = estimatedUsd,
+        )
     }
 }
 

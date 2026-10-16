@@ -1,6 +1,12 @@
 package com.tim.futureai.feature.settings
 
 import com.tim.futureai.core.security.SecureValueStore
+import com.tim.futureai.data.settings.AiSettingsManager
+import com.tim.futureai.domain.ai.CapabilityEvidence
+import com.tim.futureai.domain.ai.ModelTask
+import com.tim.futureai.domain.ai.ProviderProtocol
+import com.tim.futureai.domain.ai.AiSettings
+import com.tim.futureai.domain.ai.SettingsSaveResult
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -100,5 +106,50 @@ class AiSettingsTest {
         assertEquals(SettingsSaveResult.Saved, manager.save(legacy.copy(model = "updated-model")))
         assertEquals("legacy-secret", manager.configFor("legacy")?.apiKey)
         assertNull(store.getString("api_key"))
+    }
+
+    @Test fun capabilityRegistryFieldsRoundTripInsideEncryptedProfileBundle() {
+        val store = FakeSecureStore()
+        val manager = AiSettingsManager(store)
+        val source = AiSettings(
+            baseUrl = "https://provider.example/v1", model = "reasoner", apiKey = "secret",
+            id = "reasoner", name = "Reasoning provider", contextWindowTokens = "64000",
+            availableModels = " fast-model \nlong-model,reasoner",
+            supportedTasks = setOf(ModelTask.REASONING, ModelTask.CODING),
+            capabilityEvidence = CapabilityEvidence.PROVIDER_DECLARED, preference = 8,
+            providerProtocol = ProviderProtocol.OPENAI_COMPATIBLE,
+        )
+        assertEquals(SettingsSaveResult.Saved, manager.save(source))
+        val persisted = store.getString("ai_provider_profiles_v1").orEmpty()
+        assertTrue("profile bundle is stored through the SecureValueStore abstraction", persisted.contains("reasoner"))
+        assertTrue("API key is not exposed by the profiles UI model", manager.profiles().single().apiKey.isBlank())
+        val restored = AiSettingsManager(store).loadProfile("reasoner")!!
+        assertEquals("64000", restored.contextWindowTokens)
+        assertEquals("fast-model\nlong-model", restored.availableModels)
+        assertEquals(setOf(ModelTask.REASONING, ModelTask.CODING), restored.supportedTasks)
+        assertEquals(CapabilityEvidence.PROVIDER_DECLARED, restored.capabilityEvidence)
+        assertEquals(8, restored.preference)
+        assertEquals(ProviderProtocol.OPENAI_COMPATIBLE, restored.providerProtocol)
+        assertTrue(restored.enabled)
+        assertEquals("fast-model", AiSettingsManager(store).configFor("reasoner", "fast-model")?.model)
+        assertNull(AiSettingsManager(store).configFor("reasoner", "unregistered-model"))
+    }
+
+    @Test fun disabledProviderCannotBecomeActiveRouteAndLegacyProfilesRemainEnabled() {
+        val store = FakeSecureStore()
+        val manager = AiSettingsManager(store)
+        assertEquals(SettingsSaveResult.Saved, manager.save(AiSettings(
+            baseUrl = "https://disabled.example/v1", model = "m", apiKey = "k", id = "disabled", enabled = false,
+        )))
+        assertNull(manager.configFor("disabled"))
+        assertTrue(!manager.selectProfile("disabled"))
+        assertTrue(manager.profiles().single().enabled.not())
+
+        val legacy = FakeSecureStore().apply {
+            putString("base_url", "https://legacy.example/v1")
+            putString("model", "legacy")
+            putString("api_key", "legacy-secret")
+        }
+        assertTrue(AiSettingsManager(legacy).profiles().single().enabled)
     }
 }

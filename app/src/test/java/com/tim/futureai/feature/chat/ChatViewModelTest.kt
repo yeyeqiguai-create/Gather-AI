@@ -5,6 +5,7 @@ import com.tim.futureai.core.common.AppResult
 import com.tim.futureai.domain.ai.AiProvider
 import com.tim.futureai.domain.ai.AiRequestPhase
 import com.tim.futureai.domain.ai.AiTokenUsage
+import com.tim.futureai.domain.ai.ModelTask
 import com.tim.futureai.domain.chat.ChatSessionData
 import com.tim.futureai.domain.chat.ChatSessionsLoad
 import com.tim.futureai.domain.chat.ChatSessionsRepository
@@ -14,7 +15,7 @@ import com.tim.futureai.domain.model.ChatAttachment
 import com.tim.futureai.domain.model.ChatSession
 import com.tim.futureai.domain.model.MessageRole
 import com.tim.futureai.domain.model.MessageStatus
-import com.tim.futureai.feature.settings.AiSettings
+import com.tim.futureai.domain.ai.AiSettings
 import com.tim.futureai.domain.usage.UsageRecord
 import com.tim.futureai.domain.usage.UsageRepository
 import com.tim.futureai.domain.usage.UsageSnapshot
@@ -245,6 +246,138 @@ class ChatViewModelTest {
 
         assertEquals("model-b", repository.snapshot.sessions.first { it.session.id == "one" }.session.modelProfileId)
         assertEquals("model-a", repository.snapshot.sessions.first { it.session.id == "two" }.session.modelProfileId)
+    }
+
+    @Test
+    fun automaticRoutingChoosesTaskFitAndRecordsActualProviderModel() {
+        val provider = FakeProvider(AppResult.success("implemented"))
+        val usage = MemoryUsage()
+        val routed = mutableListOf<Pair<String, String>>()
+        val vm = ChatViewModel(
+            RecordingScope(), provider,
+            providerForModel = { profileId, modelId -> routed += profileId to modelId; provider },
+            defaultModelProfileId = { "general" },
+            usageRepository = usage,
+        )
+        vm.setModelChoices(listOf(
+            AiSettings(id = "general", name = "General", baseUrl = "https://g.example/v1", model = "general-model", hasSavedApiKey = true),
+            AiSettings(
+                id = "coding", name = "Coding", baseUrl = "https://c.example/v1", model = "coder-model",
+                hasSavedApiKey = true, supportedTasks = setOf(ModelTask.CODING),
+                capabilityEvidence = com.tim.futureai.domain.ai.CapabilityEvidence.PROVIDER_DECLARED,
+            ),
+        ))
+        assertTrue(vm.selectModel(ChatModelChoice.AUTO_ID))
+        vm.updateInput("Please implement a parser")
+        vm.send()
+        awaitSettled(vm)
+
+        assertEquals(listOf("coding" to "coder-model"), routed)
+        assertTrue(vm.state.activeModelExplanation!!.contains("编程"))
+        assertEquals("coding", usage.records.single().profileId)
+        assertEquals("Coding", usage.records.single().providerName)
+        assertEquals("coder-model", usage.records.single().model)
+    }
+
+    @Test
+    fun manualSessionChoiceIsNotReplacedByAutomaticTaskMatching() {
+        val provider = FakeProvider(AppResult.success("ok"))
+        val routed = mutableListOf<Pair<String, String>>()
+        val vm = ChatViewModel(
+            RecordingScope(), provider,
+            providerForModel = { profileId, modelId -> routed += profileId to modelId; provider },
+        )
+        vm.setModelChoices(listOf(
+            AiSettings(id = "manual", name = "Manual", baseUrl = "https://m.example/v1", model = "manual-model", hasSavedApiKey = true),
+            AiSettings(id = "coder", name = "Coder", baseUrl = "https://c.example/v1", model = "coder-model", hasSavedApiKey = true, supportedTasks = setOf(ModelTask.CODING)),
+        ))
+        assertTrue(vm.selectModel("manual"))
+        vm.updateInput("implement a parser")
+        vm.send()
+        awaitSettled(vm)
+        assertEquals(listOf("manual" to "manual-model"), routed)
+        assertTrue(vm.state.activeModelExplanation!!.contains("手动指定"))
+    }
+
+    @Test
+    fun failedAutomaticAttemptDoesNotSilentlyFallbackAndExplicitRetryReRoutes() {
+        val attempts = mutableListOf<String>()
+        val limitedProvider = FakeProvider(AppResult.failure(AppError.RateLimited("slow down")))
+        val healthyProvider = FakeProvider(AppResult.success("retry succeeded"))
+        val vm = ChatViewModel(
+            RecordingScope(), FakeProvider(AppResult.success("unused")),
+            providerForModel = { profileId, _ ->
+                attempts += profileId
+                if (profileId == "code") limitedProvider else healthyProvider
+            },
+            defaultModelProfileId = { "general" },
+        )
+        vm.setModelChoices(listOf(
+            AiSettings(id = "general", name = "General", baseUrl = "https://g.example/v1", model = "g", hasSavedApiKey = true),
+            AiSettings(id = "code", name = "Code", baseUrl = "https://c.example/v1", model = "c", hasSavedApiKey = true, supportedTasks = setOf(ModelTask.CODING)),
+        ))
+        vm.selectModel(ChatModelChoice.AUTO_ID)
+        vm.updateInput("implement this function")
+        vm.send()
+        awaitSettled(vm)
+        assertEquals(listOf("code"), attempts) // one provider per request; no implicit retry/failover
+        assertTrue(vm.state.notice!!.contains("频繁"))
+
+        vm.retry(0) // a user action in Auto mode authorizes a fresh routing decision
+        awaitSettled(vm)
+        assertEquals(listOf("code", "general"), attempts)
+        assertEquals("retry succeeded", vm.state.messages.last().text)
+    }
+
+    @Test
+    fun oneMessageModelOverrideDoesNotChangeSessionDefault() {
+        val provider = FakeProvider(AppResult.success("ok"))
+        val routed = mutableListOf<String>()
+        val vm = ChatViewModel(
+            RecordingScope(), provider,
+            defaultModelProfileId = { "general" },
+            providerForModel = { profileId, _ -> routed += profileId; provider },
+        )
+        vm.setModelChoices(listOf(
+            AiSettings(id = "general", name = "General", baseUrl = "https://g.example/v1", model = "g", hasSavedApiKey = true),
+            AiSettings(id = "coder", name = "Coder", baseUrl = "https://c.example/v1", model = "c", hasSavedApiKey = true),
+        ))
+        assertTrue(vm.selectModelForNextMessage("coder"))
+        assertEquals("general", vm.state.selectedModelId)
+        vm.updateInput("first")
+        vm.send()
+        awaitSettled(vm)
+        assertEquals(listOf("coder"), routed)
+        assertEquals("general", vm.state.selectedModelId)
+
+        vm.updateInput("second")
+        vm.send()
+        awaitSettled(vm)
+        assertEquals(listOf("coder", "general"), routed)
+    }
+
+    @Test
+    fun oneMessageVisionOverrideAllowsImageWithoutChangingTextOnlySessionDefault() {
+        val provider = FakeProvider(AppResult.success("image analyzed"))
+        val routed = mutableListOf<String>()
+        val vm = ChatViewModel(
+            RecordingScope(), provider,
+            defaultModelProfileId = { "text" },
+            providerForModel = { profileId, _ -> routed += profileId; provider },
+        )
+        vm.setModelChoices(listOf(
+            AiSettings(id = "text", name = "Text", baseUrl = "https://t.example/v1", model = "text", hasSavedApiKey = true),
+            AiSettings(id = "vision", name = "Vision", baseUrl = "https://v.example/v1", model = "vision", hasSavedApiKey = true, supportsImages = true),
+        ))
+        vm.addAttachments(listOf(ChatAttachment(name = "image.png", mimeType = "image/png", localPath = "/tmp/image.png")))
+        assertFalse(vm.state.canSend)
+        assertTrue(vm.selectModelForNextMessage("vision"))
+        assertTrue(vm.state.canSend)
+        vm.send()
+        awaitSettled(vm)
+        assertEquals(listOf("vision"), routed)
+        assertEquals("text", vm.state.selectedModelId)
+        assertNull(vm.state.nextMessageModelId)
     }
 
     @Test

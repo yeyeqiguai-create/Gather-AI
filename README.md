@@ -76,3 +76,12 @@ The project license has not yet been specified. Please check the repository for 
 - 每个版本只上传一个 `.apk`，并同时上传 `update.json`。旧客户端忽略 JSON 文件，仍从 Release 正文、APK 资源和 GitHub SHA-256 digest 检查更新。
 - 新客户端通过该 Release 的长期资源地址读取 `update.json`，并以 GitHub 资源 SHA-256 作缓存键：`https://github.com/yeyeqiguai-create/Gather-AI/releases/download/<tag>/update.json?download=1&sha256=<asset-digest>`。其中包含 `versionName`、`versionCode`、`releaseNotes`、`apkUrl`、`sha256`；客户端会与 Release 标签、正文及 APK 资源交叉校验。
 - 没有 `update.json` 的历史 Release 使用兼容解析；元数据不匹配、APK 缺失或校验信息无效时不会允许安装。
+
+## v0.1.5.01 (Revise1) Beta
+
+- 服务商配置按独立加密配置保存，可启停；每个配置有默认模型、额外模型 ID、上下文容量、任务能力声明与自动路由偏好。
+- 聊天模型菜单支持按会话固定、自动选模，以及只覆盖下一条消息；临时覆盖不会更改会话默认值。
+- 自动选模根据任务、图片要求、上下文需求、能力来源、用户偏好和最近服务商状态路由。每个请求只发送给一个服务商；不会在失败后自动转发，重试由用户触发。
+- 当前实际网络适配器为 OpenAI-compatible。其他原生协议若未注册会明确拒绝请求。
+- 用量按服务商和模型汇总。费用仅按已配置单价和真实 Token 数估算；多模型的未配置价格保持未知。
+- 旧版单服务商加密配置保留，首次保存时迁移；新增字段有默认值，不影响旧会话和密钥。

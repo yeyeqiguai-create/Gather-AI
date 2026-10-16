@@ -1,5 +1,6 @@
 package com.tim.futureai.domain.ai
 
+import com.tim.futureai.core.common.AppError
 import com.tim.futureai.core.common.AppResult
 import com.tim.futureai.domain.model.ChatMessage
 
@@ -14,6 +15,10 @@ interface AiProvider {
      * 实现不得吞掉异常：所有失败以 [AppResult.Failure] 结构化返回。
      */
     suspend fun complete(messages: List<ChatMessage>): AppResult<String>
+
+    /** Authenticated lightweight connectivity check; implementations must not generate a completion. */
+    suspend fun testConnection(): AppResult<Unit> =
+        AppResult.failure(AppError.Configuration("当前服务商未实现连接测试"))
 
     /** Providers may report transport phases; default keeps simple/fake providers source-compatible. */
     suspend fun complete(messages: List<ChatMessage>, onPhase: (AiRequestPhase) -> Unit): AppResult<String> {
@@ -39,6 +44,9 @@ interface AiProvider {
         onUsage: (AiTokenUsage) -> Unit,
     ): AppResult<String> = stream(messages, onPhase, onDelta)
 }
+
+/** Network protocol is explicit so a profile cannot accidentally be sent through the wrong wire format. */
+enum class ProviderProtocol { OPENAI_COMPATIBLE, ANTHROPIC_MESSAGES, GEMINI_GENERATE_CONTENT }
 
 enum class AiRequestPhase { REQUESTING, RECEIVING_REPLY }
 

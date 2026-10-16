@@ -63,8 +63,10 @@ feature ──▶ domain ◀── data
 ## AI 交互模块
 
 - `AiProvider.streamWithUsage` 是兼容层入口；OpenAI-compatible Provider 通过 SSE 逐段读取 `delta.content`，取消时断开 HTTP 连接。请求代次和会话 ID 仍由 `ChatViewModel` 校验，部分回复在失败/停止时保留并标记状态。
-- Provider 配置集合以单份 `SecureKeyStore` 密文保存；旧版单配置首次保存时迁移。会话的 `modelProfileId` 持久化于会话记录，模型图片能力由用户显式声明。
+- `domain.ai.AiSettings` 保存无密钥的服务商/模型元数据；`data.settings.AiSettingsManager` 通过 `SecureKeyStore` 加密存储密钥。旧版单配置首次保存时迁移；旧会话的 `modelProfileId` 仍映射到服务商默认模型。
+- `ModelCapabilityRegistry` 从启用的配置生成无密钥模型目录；`AutomaticModelSelector` 按任务、图片需求、上下文容量、能力来源、服务商最近状态和用户偏好单次选出一个模型。手动模型不会被静默替换；仅用户主动重试时才基于 Auto 模式重新路由，一次请求不会在服务商之间自动转发。
+- `AiProviderRegistry` 按 `ProviderProtocol` 选择网络适配器。适配器由 data 层注册；当前只注册 OpenAI-compatible，未注册的原生协议会在发送前失败。
 - 附件导入由 `platform.files.AttachmentImporter` 执行：图片存于应用私有目录并生成缩略图，TXT/MD/CSV/JSON/XML 与 DOCX 提取为本地文本；未支持的格式明确拒绝。只有启用图片能力的配置可发送图片，网络请求中图片以 data URL 发送。
-- `UsageRepository` 记录耗时、错误类别及服务商实际返回的 Token 数；缺失用量保留为未知。费用只按每个配置中用户填写的可选单价估算，并标记为估算。
+- `UsageRepository` 按实际 Provider/模型保存耗时、错误类别和真实 Token 数。费用仅按模型 ID 精确匹配的用户单价估算；缺少真实 Token 或对应单价时保留为未知。
 - `platform.speech.SpeechController` 封装 Android TTS；语音输入交给系统识别 Intent，未安装识别服务或权限被拒绝时回退为明确提示。
 - 用户消息支持编辑（截断后续依赖回复）、分享；整段会话通过 Android 文件保存器导出。

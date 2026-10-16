@@ -11,6 +11,12 @@ import com.tim.futureai.domain.model.ChatMessage
 import com.tim.futureai.domain.model.ChatSession
 import com.tim.futureai.domain.model.ChatAttachment
 import com.tim.futureai.domain.ai.AiTokenUsage
+import com.tim.futureai.domain.ai.AutomaticModelSelector
+import com.tim.futureai.domain.ai.ModelRoutingRequest
+import com.tim.futureai.domain.ai.ModelSelection
+import com.tim.futureai.domain.ai.ModelCapabilityRegistry
+import com.tim.futureai.domain.ai.ProviderAvailability
+import com.tim.futureai.domain.ai.TaskClassifier
 import com.tim.futureai.domain.usage.UsageRecord
 import com.tim.futureai.domain.usage.UsageRepository
 import com.tim.futureai.domain.model.MessageRole
@@ -19,7 +25,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.time.Instant
-import com.tim.futureai.feature.settings.AiSettings
+import com.tim.futureai.domain.ai.AiSettings
 
 /** Chat state holder and local-session coordinator. */
 class ChatViewModel(
@@ -30,6 +36,7 @@ class ChatViewModel(
     private val providerForProfileId: ((String?) -> AiProvider)? = null,
     private val defaultModelProfileId: () -> String? = { null },
     private val usageRepository: UsageRepository? = null,
+    private val providerForModel: ((profileId: String, modelId: String) -> AiProvider)? = null,
 ) {
     private var sessionData = mutableListOf<ChatSessionData>()
     private var _state = initial.copy(isHistoryLoading = sessionsRepository != null)
@@ -45,8 +52,10 @@ class ChatViewModel(
     private var activeRequestProfileId: String? = null
     private var activeRequestProviderName: String = "默认配置"
     private var activeRequestModelName: String = "未知"
+    private var nextMessageChoiceId: String? = null
     private var requestGeneration = 0L
     private val requestStatusBySession = mutableMapOf<String, ChatRequestStatus>()
+    private val providerHealthByChoiceId = mutableMapOf<String, Pair<ProviderAvailability, Long>>()
 
     init {
         if (sessionsRepository != null) scope.launch {
@@ -124,14 +133,31 @@ class ChatViewModel(
     }
 
     fun setModelChoices(profiles: List<AiSettings>) {
-        val choices = profiles.filter { it.isConfigured }.map { ChatModelChoice(it.id, "${it.name} · ${it.model}", it.supportsImages) }
+        val choices = ModelCapabilityRegistry.fromProfiles(profiles).map { model ->
+            ChatModelChoice(
+                id = model.id,
+                displayName = "${model.providerName} · ${model.modelId}",
+                supportsImages = model.supportsImages,
+                profileId = model.profileId,
+                providerName = model.providerName,
+                modelId = model.modelId,
+                contextWindowTokens = model.contextWindowTokens,
+                tasks = model.tasks,
+                capabilityEvidence = model.capabilityEvidence,
+                preference = model.preference,
+            )
+        }.toMutableList()
+        if (choices.isNotEmpty()) choices += ChatModelChoice.automatic(choices.any { it.supportsImages })
         val currentId = sessionData.firstOrNull { it.session.id == _state.activeSessionId }?.session?.modelProfileId
         val selectedId = currentId ?: defaultModelProfileId()
+        if (nextMessageChoiceId != null && choices.none { it.id == nextMessageChoiceId }) nextMessageChoiceId = null
+        val effectiveChoiceId = nextMessageChoiceId ?: selectedId
         val unsupported = _state.pendingAttachments.any { it.mimeType.startsWith("image/") } &&
-            choices.firstOrNull { it.id == selectedId }?.supportsImages != true
+            choices.firstOrNull { it.id == effectiveChoiceId }?.supportsImages != true
         setState(_state.copy(
             modelChoices = choices,
             selectedModelId = selectedId,
+            nextMessageModelId = nextMessageChoiceId,
             notice = if (unsupported) "当前模型未启用图片输入；请更换模型" else _state.notice,
         ))
     }
@@ -142,15 +168,29 @@ class ChatViewModel(
         val index = sessionData.indexOfFirst { it.session.id == _state.activeSessionId }
         if (index < 0) return false
         val current = sessionData[index]
+        nextMessageChoiceId = null
         sessionData[index] = current.copy(session = current.session.copy(modelProfileId = profileId))
         val unsupported = _state.pendingAttachments.any { it.mimeType.startsWith("image/") } &&
             _state.modelChoices.firstOrNull { it.id == profileId }?.supportsImages != true
         setState(_state.copy(
             selectedModelId = profileId,
+            nextMessageModelId = null,
+            activeModelExplanation = null,
             sessions = sessionData.map { it.session },
             notice = if (unsupported) "当前模型未启用图片输入；请更换模型" else null,
         ))
         persistAll()
+        return true
+    }
+
+    fun selectModelForNextMessage(choiceId: String): Boolean {
+        if (_state.isLoading || _state.isHistoryLoading || _state.modelChoices.none { it.id == choiceId }) return false
+        nextMessageChoiceId = choiceId
+        val choice = _state.modelChoices.first { it.id == choiceId }
+        setState(_state.copy(
+            nextMessageModelId = choiceId,
+            activeModelExplanation = "仅下一条消息使用 ${choice.displayName}；会话默认不变",
+        ))
         return true
     }
 
@@ -210,6 +250,8 @@ class ChatViewModel(
         val current = _state
         if (current.isLoading || current.isHistoryLoading || !current.canSend) return
         val sessionId = current.activeSessionId
+        val choiceOverride = nextMessageChoiceId
+        nextMessageChoiceId = null
         val attachments = current.pendingAttachments
         val text = current.inputText.trim().ifBlank { "请分析附件" }
         val history = current.messages.map { ChatMessage(sessionId = sessionId, role = it.role, content = it.text, status = it.status, attachments = it.attachments) } +
@@ -220,13 +262,13 @@ class ChatViewModel(
         val defaultTitle = sessionData.firstOrNull { it.session.id == sessionId }?.session?.title == "新对话"
         val title = if (defaultTitle && userIndex == 0) text.take(48) else current.sessionTitle
         requestStatusBySession[sessionId] = ChatRequestStatus.PREPARING
-        setState(current.copy(messages = messages, inputText = "", pendingAttachments = emptyList(), isLoading = true, requestStatus = ChatRequestStatus.PREPARING, notice = null, sessionTitle = title))
+        setState(current.copy(messages = messages, inputText = "", pendingAttachments = emptyList(), nextMessageModelId = null, isLoading = true, requestStatus = ChatRequestStatus.PREPARING, notice = null, sessionTitle = title))
         updateSessionTitle(sessionId, title)
         activeUserIndex = userIndex
         activeAssistantIndex = null
         activeAssistantHasDelta = false
         val requestId = ++requestGeneration
-        sendJob = scope.launch { runRequest(requestId, sessionId, history, userIndex, null) }
+        sendJob = scope.launch { runRequest(requestId, sessionId, history, userIndex, null, choiceOverride) }
     }
 
     fun regenerate(assistantIndex: Int) {
@@ -260,23 +302,88 @@ class ChatViewModel(
         sendJob = scope.launch { runRequest(requestId, current.activeSessionId, history, userIndex, null) }
     }
 
-    private suspend fun runRequest(requestId: Long, sessionId: String, history: List<ChatMessage>, userIndex: Int, assistantIndex: Int?) {
+    private suspend fun runRequest(
+        requestId: Long,
+        sessionId: String,
+        history: List<ChatMessage>,
+        userIndex: Int,
+        assistantIndex: Int?,
+        choiceOverride: String? = null,
+    ) {
         if (!isCurrentRequest(requestId, sessionId)) return
         val streamText = StringBuilder()
         synchronized(streamTextLock) { activeStreamText = streamText }
-        val profileId = sessionData.firstOrNull { it.session.id == sessionId }?.session?.modelProfileId
-        val selectedChoice = _state.modelChoices.firstOrNull { it.id == profileId }
-            ?: _state.modelChoices.firstOrNull { it.id == _state.selectedModelId }
+        val savedChoiceId = sessionData.firstOrNull { it.session.id == sessionId }?.session?.modelProfileId
+        val requestedChoiceId = choiceOverride ?: savedChoiceId ?: _state.selectedModelId ?: defaultModelProfileId()
+        val automatic = requestedChoiceId == ChatModelChoice.AUTO_ID
+        val configuredChoices = _state.modelChoices.filterNot { it.isAutomatic }
+        val choices = if (configuredChoices.isEmpty() && requestedChoiceId == null) {
+            listOf(ChatModelChoice.legacyDefault())
+        } else configuredChoices
+        val manualRouteId = when {
+            automatic -> null
+            requestedChoiceId == null && configuredChoices.isEmpty() -> ChatModelChoice.DEFAULT_PROVIDER_ID
+            else -> requestedChoiceId
+        }
+        val userPrompt = history.lastOrNull { it.role == MessageRole.USER }?.content.orEmpty()
+        val contextText = history.joinToString("\n") { message ->
+            message.content + message.attachments.joinToString("") { it.textContent }
+        }
+        val routeResult = AutomaticModelSelector.select(
+            ModelRoutingRequest(
+                prompt = userPrompt,
+                estimatedContextTokens = TaskClassifier.estimateTokens(contextText),
+                requiresImages = history.any { message -> message.attachments.any { it.mimeType.startsWith("image/") } },
+                manualProfileId = manualRouteId,
+                preferredProfileId = defaultModelProfileId(),
+            ),
+            candidates = choices.map { choice -> choice.candidate(availabilityFor(choice.id)) },
+        )
+        val selection = routeResult as? ModelSelection.Selected
+        if (selection == null) {
+            val failure = routeResult as ModelSelection.Unavailable
+            val reasons = failure.reasons.values.distinct().joinToString("；")
+            val notice = if (reasons.isBlank()) "没有可用模型，请在设置中启用并配置服务商" else "没有可用模型：$reasons"
+            val messages = _state.messages.toMutableList()
+            if (assistantIndex == null && userIndex in messages.indices) messages[userIndex] = messages[userIndex].copy(status = MessageStatus.FAILED)
+            activeAssistantIndex?.takeIf { it in messages.indices }?.let { index ->
+                messages[index] = messages[index].copy(status = if (activeAssistantHasDelta) MessageStatus.FAILED else MessageStatus.CANCELLED)
+            }
+            activeUserIndex = null
+            activeAssistantIndex = null
+            activeRequestStartedAtNanos = null
+            requestStatusBySession[sessionId] = ChatRequestStatus.FAILED
+            setState(_state.copy(
+                messages = messages, isLoading = false, requestStatus = ChatRequestStatus.FAILED,
+                notice = notice, activeModelExplanation = "未发送请求 · ${failure.task}",
+            ))
+            syncActiveMessages(messages)
+            persistAll()
+            usageRepository?.let { repository -> scope.launch { runCatching {
+                repository.append(UsageRecord(
+                    profileId = null,
+                    providerName = if (automatic) "自动选模" else "手动选模",
+                    model = requestedChoiceId ?: "未选择",
+                    durationMs = 0,
+                    errorType = "NoModelAvailable",
+                ))
+            } } }
+            return
+        }
+        val candidate = selection.candidate
         activeRequestStartedAtNanos = System.nanoTime()
-        activeRequestProfileId = profileId
-        activeRequestProviderName = selectedChoice?.displayName ?: "默认配置"
-        activeRequestModelName = selectedChoice?.displayName ?: "未知"
+        activeRequestProfileId = candidate.profileId.takeUnless { it == ChatModelChoice.DEFAULT_PROVIDER_ID }
+        activeRequestProviderName = candidate.providerName
+        activeRequestModelName = candidate.modelId
         val tokenUsage = java.util.concurrent.atomic.AtomicReference<AiTokenUsage?>(null)
         requestStatusBySession[sessionId] = ChatRequestStatus.REQUESTING
-        setState(_state.copy(requestStatus = ChatRequestStatus.REQUESTING))
+        setState(_state.copy(requestStatus = ChatRequestStatus.REQUESTING, activeModelExplanation = selection.explanation))
         persistAll()
         val result = try {
-            (providerForProfileId?.invoke(profileId) ?: provider)
+            (if (candidate.profileId == ChatModelChoice.DEFAULT_PROVIDER_ID) provider
+            else providerForModel?.invoke(candidate.profileId, candidate.modelId)
+                ?: providerForProfileId?.invoke(candidate.profileId)
+                ?: provider)
                 .streamWithUsage(history, onPhase = { phase ->
                 val status = when (phase) {
                     AiRequestPhase.REQUESTING -> ChatRequestStatus.REQUESTING
@@ -304,6 +411,7 @@ class ChatViewModel(
             setAssistantStreamText(assistantIndex, completePartial)
         }
         if (!isCurrentRequest(requestId, sessionId)) return
+        updateProviderAvailability(candidate.id, result)
         val startedAt = activeRequestStartedAtNanos
         activeRequestStartedAtNanos = null
         if (startedAt != null) runCatching {
@@ -409,20 +517,50 @@ class ChatViewModel(
 
     fun clear() {
         if (_state.isLoading) cancel()
-        setState(_state.copy(messages = emptyList(), pendingAttachments = emptyList(), notice = null))
+        nextMessageChoiceId = null
+        setState(_state.copy(messages = emptyList(), pendingAttachments = emptyList(), nextMessageModelId = null, notice = null))
         persistAll()
     }
 
-    private fun showSession(data: ChatSessionData) = setState(_state.copy(
-        activeSessionId = data.session.id, sessionTitle = data.session.title,
-        messages = data.messages.map { ChatBubble(it.role, it.content, if (it.status == MessageStatus.GENERATING) MessageStatus.FAILED else it.status, it.attachments) },
-        sessions = sessionData.map { it.session }, inputText = "", pendingAttachments = emptyList(), notice = null, isLoading = false,
-        selectedModelId = data.session.modelProfileId ?: defaultModelProfileId(),
-        requestStatus = requestStatusBySession[data.session.id] ?: statusForMessages(data.messages.map { ChatBubble(it.role, it.content, if (it.status == MessageStatus.GENERATING) MessageStatus.FAILED else it.status, it.attachments) }),
-    ))
+    private fun showSession(data: ChatSessionData) {
+        nextMessageChoiceId = null
+        setState(_state.copy(
+            activeSessionId = data.session.id, sessionTitle = data.session.title,
+            messages = data.messages.map { ChatBubble(it.role, it.content, if (it.status == MessageStatus.GENERATING) MessageStatus.FAILED else it.status, it.attachments) },
+            sessions = sessionData.map { it.session }, inputText = "", pendingAttachments = emptyList(), notice = null, isLoading = false,
+            selectedModelId = data.session.modelProfileId ?: defaultModelProfileId(),
+            nextMessageModelId = null,
+            activeModelExplanation = null,
+            requestStatus = requestStatusBySession[data.session.id] ?: statusForMessages(data.messages.map { ChatBubble(it.role, it.content, if (it.status == MessageStatus.GENERATING) MessageStatus.FAILED else it.status, it.attachments) }),
+        ))
+    }
 
     private fun isCurrentRequest(requestId: Long, sessionId: String): Boolean =
         requestId == requestGeneration && sessionId == _state.activeSessionId && _state.isLoading
+
+    private fun availabilityFor(choiceId: String): ProviderAvailability {
+        val entry = providerHealthByChoiceId[choiceId] ?: return ProviderAvailability.UNKNOWN
+        if (entry.second <= System.nanoTime()) {
+            providerHealthByChoiceId.remove(choiceId)
+            return ProviderAvailability.UNKNOWN
+        }
+        return entry.first
+    }
+
+    private fun updateProviderAvailability(choiceId: String, result: AppResult<String>) {
+        val now = System.nanoTime()
+        val state = when (result) {
+            is AppResult.Success -> ProviderAvailability.READY to 60_000_000_000L
+            is AppResult.Failure -> when (val error = result.error) {
+                is AppError.RateLimited -> ProviderAvailability.RATE_LIMITED to
+                    ((error.retryAfterSeconds ?: 30L).coerceIn(1L, 300L) * 1_000_000_000L)
+                is AppError.Auth -> ProviderAvailability.UNAVAILABLE to 300_000_000_000L
+                is AppError.Network, is AppError.Server, is AppError.ModelUnavailable -> ProviderAvailability.UNAVAILABLE to 30_000_000_000L
+                else -> return
+            }
+        }
+        providerHealthByChoiceId[choiceId] = state.first to (now + state.second)
+    }
 
     private fun updateSessionTitle(id: String, title: String) {
         val i = sessionData.indexOfFirst { it.session.id == id }

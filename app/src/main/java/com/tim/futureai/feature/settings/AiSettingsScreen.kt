@@ -24,6 +24,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -55,6 +57,11 @@ import com.tim.futureai.ui.theme.glassPanel
 import com.tim.futureai.feature.update.UpdateCheckResult
 import com.tim.futureai.feature.update.UpdateSection
 import com.tim.futureai.domain.usage.UsageSnapshot
+import com.tim.futureai.domain.usage.UsagePriceKey
+import com.tim.futureai.domain.usage.ModelUsagePrice
+import com.tim.futureai.domain.ai.CapabilityEvidence
+import com.tim.futureai.domain.ai.ModelTask
+import com.tim.futureai.domain.ai.AiSettings
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,6 +91,7 @@ fun AiSettingsScreen(
     usage: UsageSnapshot = UsageSnapshot(),
 ) {
     var showApiKey by remember { mutableStateOf(false) }
+    var evidenceMenuExpanded by remember { mutableStateOf(false) }
     FutureBackdrop(modifier) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
@@ -120,12 +128,22 @@ fun AiSettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(17.dp),
             ) {
                 IntroPanel()
+                Row(
+                    modifier = Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("启用此服务商参与选模", color = FuturePalette.Text, fontSize = 12.sp)
+                        Text("停用后不会自动路由；手动发送也会被阻止", color = FuturePalette.Muted, fontSize = 10.sp)
+                    }
+                    Checkbox(checked = settings.enabled, onCheckedChange = { onSettingsChanged(settings.copy(enabled = it)) })
+                }
                 Column(
                     modifier = Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(22.dp)).padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("服务商与模型", color = FuturePalette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text("服务商与模型", color = FuturePalette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                         TextButton(onClick = onCreateProfile) { Text("＋ 新增", color = FuturePalette.VioletBright) }
                     }
                     profiles.forEach { profile ->
@@ -137,7 +155,7 @@ fun AiSettingsScreen(
                         ) {
                             Column(Modifier.weight(1f)) {
                                 Text(profile.name, color = FuturePalette.Text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                                Text("${profile.baseUrl} · ${profile.model}", color = FuturePalette.Muted, fontSize = 9.sp, maxLines = 1)
+                                Text("${if (profile.enabled) "已启用" else "已停用"} · ${profile.model}${if (profile.availableModels.isBlank()) "" else " + 其他模型"}", color = FuturePalette.Muted, fontSize = 9.sp, maxLines = 1)
                             }
                             if (profile.id == settings.id) Text("编辑中", color = FuturePalette.Cyan, fontSize = 10.sp)
                             else TextButton(onClick = { onSelectProfile(profile.id) }) { Text("编辑", color = FuturePalette.VioletBright) }
@@ -151,6 +169,7 @@ fun AiSettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(15.dp),
                 ) {
                     Text("连接信息", color = FuturePalette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text("协议：OpenAI-compatible。不同原生协议会由独立适配器注册；未实现的协议会拒绝发送。", color = FuturePalette.Muted, fontSize = 10.sp, lineHeight = 15.sp)
                     SettingFieldLabel("配置名称", "用于区分服务商")
                     OutlinedTextField(
                         value = settings.name,
@@ -159,6 +178,66 @@ fun AiSettingsScreen(
                         shape = RoundedCornerShape(16.dp),
                         colors = fieldColors(),
                         modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text("同一服务商的其他模型（每行一个 ID；共用该服务商密钥和能力声明）", color = FuturePalette.Muted, fontSize = 10.sp)
+                    OutlinedTextField(
+                        value = settings.availableModels,
+                        onValueChange = { onSettingsChanged(settings.copy(availableModels = it)) },
+                        placeholder = { Text("例如：model-fast\nmodel-long-context", color = FuturePalette.Muted.copy(alpha = 0.75f)) },
+                        minLines = 2, maxLines = 4,
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
+                        shape = RoundedCornerShape(16.dp), colors = fieldColors(), modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = settings.contextWindowTokens,
+                        onValueChange = { onSettingsChanged(settings.copy(contextWindowTokens = it.filter(Char::isDigit).take(9))) },
+                        label = { Text("上下文容量（tokens；未知留空）") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        shape = RoundedCornerShape(14.dp), colors = fieldColors(), modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text("任务适配能力（仅服务商声明；不代表基准测试）", color = FuturePalette.Text, fontSize = 11.sp)
+                    ModelTask.values().filterNot { it == ModelTask.GENERAL }.chunked(2).forEach { rowTasks ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            rowTasks.forEach { task ->
+                                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = task in settings.supportedTasks,
+                                        onCheckedChange = { checked ->
+                                            val tasks = if (checked) settings.supportedTasks + task else settings.supportedTasks - task
+                                            onSettingsChanged(settings.copy(
+                                                supportedTasks = tasks,
+                                                capabilityEvidence = if (tasks.isEmpty()) CapabilityEvidence.UNKNOWN else CapabilityEvidence.PROVIDER_DECLARED,
+                                            ))
+                                        },
+                                    )
+                                    Text(task.label(), color = FuturePalette.Muted, fontSize = 10.sp)
+                                }
+                            }
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("能力信息来源", color = FuturePalette.Text, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                        Box {
+                            TextButton(onClick = { evidenceMenuExpanded = true }) {
+                                Text(settings.capabilityEvidence.label(), color = FuturePalette.Cyan, fontSize = 11.sp)
+                            }
+                            DropdownMenu(expanded = evidenceMenuExpanded, onDismissRequest = { evidenceMenuExpanded = false }) {
+                                listOf(CapabilityEvidence.UNKNOWN, CapabilityEvidence.PROVIDER_DECLARED).forEach { evidence ->
+                                    DropdownMenuItem(
+                                        text = { Text(evidence.label()) },
+                                        onClick = { onSettingsChanged(settings.copy(capabilityEvidence = evidence)); evidenceMenuExpanded = false },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Text("“已验证”仅供未来由可复现测试确认后记录；当前不会伪造模型成绩或容量。", color = FuturePalette.Muted, fontSize = 9.sp)
+                    OutlinedTextField(
+                        value = settings.preference.toString(),
+                        onValueChange = { value -> value.toIntOrNull()?.let { onSettingsChanged(settings.copy(preference = it.coerceIn(-20, 20))) } },
+                        label = { Text("自动选模偏好（-20 到 20）") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        shape = RoundedCornerShape(14.dp), colors = fieldColors(), modifier = Modifier.fillMaxWidth(),
                     )
                     SettingFieldLabel("API Base URL", "OpenAI-compatible 接口地址")
                     OutlinedTextField(
@@ -189,7 +268,7 @@ fun AiSettingsScreen(
                         }
                         Checkbox(checked = settings.supportsImages, onCheckedChange = { onSettingsChanged(settings.copy(supportsImages = it)) })
                     }
-                    Text("可选单价（USD / 每百万 Token，用于本地费用估算）", color = FuturePalette.Muted, fontSize = 10.sp)
+                    Text("默认模型单价（USD / 每百万 Token；其他模型价格未知时不估算）", color = FuturePalette.Muted, fontSize = 10.sp)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(
                             value = settings.inputUsdPerMillion,
@@ -298,9 +377,13 @@ fun AiSettingsScreen(
 
 @Composable
 private fun UsageCard(usage: UsageSnapshot, profiles: List<AiSettings>) {
-    val inputRates = profiles.associate { it.id to it.inputUsdPerMillion.toDoubleOrNull() }
-    val outputRates = profiles.associate { it.id to it.outputUsdPerMillion.toDoubleOrNull() }
-    val estimated = usage.estimatedUsd(inputRates, outputRates)
+    val modelPrices = profiles.associate { profile ->
+        UsagePriceKey(profile.id, profile.model) to ModelUsagePrice(
+            profile.inputUsdPerMillion.toDoubleOrNull(), profile.outputUsdPerMillion.toDoubleOrNull(),
+        )
+    }
+    val estimated = usage.estimatedUsdByModel(modelPrices)
+    val breakdown = usage.byProviderAndModel(modelPrices)
     Column(
         Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(22.dp)).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
@@ -309,6 +392,17 @@ private fun UsageCard(usage: UsageSnapshot, profiles: List<AiSettings>) {
         Text("请求 ${usage.requestCount} 次 · 错误 ${usage.errorCount} 次 · Token 未知 ${usage.unknownTokenCount} 次", color = FuturePalette.Muted, fontSize = 11.sp)
         Text("已确认 Token：输入 ${usage.promptTokens} · 输出 ${usage.completionTokens}", color = FuturePalette.Muted, fontSize = 11.sp)
         Text("请求耗时合计：${usage.totalDurationMs} ms", color = FuturePalette.Muted, fontSize = 11.sp)
+        breakdown.take(5).forEach { group ->
+            Text(
+                "${group.providerName} · ${group.model}：${group.requestCount} 次 / 错误 ${group.errorCount} 次 · Token 已知 ${group.knownUsageCount}，未知 ${group.unknownUsageCount}",
+                color = FuturePalette.Text, fontSize = 10.sp, maxLines = 2,
+            )
+            Text(
+                "输入 ${group.promptTokens} · 输出 ${group.completionTokens} · 费用估算 " +
+                    (group.estimatedUsd?.let { "~${"%.6f".format(it)} USD" } ?: "未知"),
+                color = FuturePalette.Muted, fontSize = 9.sp,
+            )
+        }
         Text(
             estimated?.let { "费用估算（USD）：~${"%.6f".format(it)}" }
                 ?: "费用估算：未知（缺少完整 Token 用量或未配置单价）",
@@ -362,3 +456,17 @@ private fun fieldColors() = OutlinedTextFieldDefaults.colors(
     focusedTrailingIconColor = FuturePalette.Muted,
     unfocusedTrailingIconColor = FuturePalette.Muted,
 )
+
+private fun ModelTask.label(): String = when (this) {
+    ModelTask.GENERAL -> "普通对话"
+    ModelTask.CODING -> "编程"
+    ModelTask.REASONING -> "推理"
+    ModelTask.LONG_CONTEXT -> "长文本"
+    ModelTask.ANALYSIS -> "分析"
+}
+
+private fun CapabilityEvidence.label(): String = when (this) {
+    CapabilityEvidence.VERIFIED -> "已验证"
+    CapabilityEvidence.PROVIDER_DECLARED -> "服务商声明"
+    CapabilityEvidence.UNKNOWN -> "未知"
+}

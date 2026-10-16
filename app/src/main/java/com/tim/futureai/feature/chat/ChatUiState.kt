@@ -22,12 +22,14 @@ data class ChatUiState(
     val notice: String? = null,
     val modelChoices: List<ChatModelChoice> = emptyList(),
     val selectedModelId: String? = null,
+    val nextMessageModelId: String? = null,
+    val activeModelExplanation: String? = null,
     val pendingAttachments: List<ChatAttachment> = emptyList(),
 ) {
     /** 当前文本或所有附件均有效且符合模型能力时可发送。 */
     val canSend: Boolean get() {
         val hasImages = pendingAttachments.any { it.mimeType.startsWith("image/") }
-        val imageCapable = modelChoices.firstOrNull { it.id == selectedModelId }?.supportsImages == true
+        val imageCapable = modelChoices.firstOrNull { it.id == (nextMessageModelId ?: selectedModelId) }?.supportsImages == true
         val attachmentsReady = pendingAttachments.isNotEmpty() && pendingAttachments.all { it.error == null } && (!hasImages || imageCapable)
         val attachmentErrors = pendingAttachments.any { it.error != null }
         return (inputText.isNotBlank() || attachmentsReady) && !attachmentErrors && (!hasImages || imageCapable) && !isLoading && !isHistoryLoading

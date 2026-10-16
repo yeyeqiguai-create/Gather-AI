@@ -1,34 +1,15 @@
-package com.tim.futureai.feature.settings
+package com.tim.futureai.data.settings
 
 import com.tim.futureai.core.common.JsonMini
 import com.tim.futureai.core.common.JsonValue
 import com.tim.futureai.core.security.SecureKeyStore
 import com.tim.futureai.core.security.SecureValueStore
 import com.tim.futureai.domain.ai.AiChatConfig
-
-/** One OpenAI-compatible endpoint. API keys are only present in memory while editing or creating a provider. */
-data class AiSettings(
-    val baseUrl: String = "",
-    val model: String = "",
-    val apiKey: String = "",
-    val hasSavedApiKey: Boolean = false,
-    val id: String = DEFAULT_PROFILE_ID,
-    val name: String = "默认配置",
-    val supportsImages: Boolean = false,
-    val inputUsdPerMillion: String = "",
-    val outputUsdPerMillion: String = "",
-) {
-    val isConfigured: Boolean
-        get() = baseUrl.isNotBlank() && model.isNotBlank() && (apiKey.isNotBlank() || hasSavedApiKey)
-
-    companion object { const val DEFAULT_PROFILE_ID = "default" }
-}
-
-sealed interface SettingsSaveResult {
-    data object Saved : SettingsSaveResult
-    data class Invalid(val message: String) : SettingsSaveResult
-    data object StorageError : SettingsSaveResult
-}
+import com.tim.futureai.domain.ai.AiSettings
+import com.tim.futureai.domain.ai.CapabilityEvidence
+import com.tim.futureai.domain.ai.ModelTask
+import com.tim.futureai.domain.ai.ProviderProtocol
+import com.tim.futureai.domain.ai.SettingsSaveResult
 
 /** Stores all provider records as one SecureKeyStore-encrypted value; legacy single-provider keys migrate on first save. */
 class AiSettingsManager(private val store: SecureValueStore) {
@@ -37,22 +18,28 @@ class AiSettingsManager(private val store: SecureValueStore) {
     fun load(): AiSettings {
         val records = readStoredProfiles()
         val selected = store.getString(ACTIVE_PROFILE_KEY)
-        val record = records.firstOrNull { it.id == selected } ?: records.firstOrNull()
+        val record = records.firstOrNull { it.id == selected && it.enabled }
+            ?: records.firstOrNull { it.enabled } ?: records.firstOrNull()
         return (record ?: AiSettings()).copy(apiKey = "", hasSavedApiKey = record?.apiKey?.isNotBlank() == true)
     }
 
     fun loadProfile(id: String): AiSettings? = readStoredProfiles().firstOrNull { it.id == id }
         ?.let { it.copy(apiKey = "", hasSavedApiKey = it.apiKey.isNotBlank()) }
 
-    fun configFor(id: String?): AiChatConfig? {
+    fun configFor(id: String?, modelOverride: String? = null, allowDisabled: Boolean = false): AiChatConfig? {
         val records = readStoredProfiles()
         val record = if (id != null) records.firstOrNull { it.id == id }
-        else records.firstOrNull { it.id == store.getString(ACTIVE_PROFILE_KEY) } ?: records.firstOrNull()
-        return record?.takeIf { it.isConfigured }?.let { AiChatConfig(it.baseUrl, it.model, it.apiKey) }
+        else records.firstOrNull { it.id == store.getString(ACTIVE_PROFILE_KEY) && it.enabled }
+            ?: records.firstOrNull { it.enabled }
+        val model = modelOverride?.trim()?.takeIf(String::isNotBlank)
+        val allowedModels = record?.let { (listOf(it.model) + it.availableModels.split(Regex("[,\\r\\n]+"))).map(String::trim) }.orEmpty()
+        return record?.takeIf { it.isConfigured && (it.enabled || allowDisabled) && (model == null || model in allowedModels) }?.let {
+            AiChatConfig(it.baseUrl, model ?: it.model, it.apiKey)
+        }
     }
 
     fun selectProfile(id: String): Boolean {
-        if (readStoredProfiles().none { it.id == id }) return false
+        if (readStoredProfiles().none { it.id == id && it.enabled }) return false
         return store.putString(ACTIVE_PROFILE_KEY, id)
     }
 
@@ -65,6 +52,12 @@ class AiSettingsManager(private val store: SecureValueStore) {
             apiKey = settings.apiKey.trim(),
             inputUsdPerMillion = settings.inputUsdPerMillion.trim(),
             outputUsdPerMillion = settings.outputUsdPerMillion.trim(),
+            contextWindowTokens = settings.contextWindowTokens.trim(),
+            availableModels = settings.availableModels.split(Regex("[,\\r\\n]+"))
+                .map(String::trim).filter(String::isNotBlank).filterNot { it == settings.model.trim() }
+                .distinct().take(32).joinToString("\n"),
+            supportedTasks = settings.supportedTasks.toSet(),
+            preference = settings.preference.coerceIn(-20, 20),
         )
         val current = readStoredProfiles()
         val old = current.firstOrNull { it.id == normalized.id }
@@ -74,7 +67,14 @@ class AiSettingsManager(private val store: SecureValueStore) {
         val next = normalized.copy(apiKey = apiKey, hasSavedApiKey = false)
         val updated = if (old == null) current + next else current.map { if (it.id == next.id) next else it }
         if (!store.putString(PROFILES_KEY, encodeProfiles(updated))) return SettingsSaveResult.StorageError
-        if (!store.putString(ACTIVE_PROFILE_KEY, next.id)) return SettingsSaveResult.StorageError
+        val activeId = store.getString(ACTIVE_PROFILE_KEY)
+        val nextActive = when {
+            next.enabled -> next.id
+            activeId == next.id -> updated.firstOrNull { it.enabled }?.id
+            else -> activeId
+        }
+        if (nextActive == null) store.remove(ACTIVE_PROFILE_KEY)
+        else if (!store.putString(ACTIVE_PROFILE_KEY, nextActive)) return SettingsSaveResult.StorageError
         // Remove the previous one-profile ciphertext only after the encrypted profile bundle is safely stored.
         store.remove(SecureKeyStore.KEY_API)
         store.remove(SecureKeyStore.KEY_BASE_URL)
@@ -88,7 +88,8 @@ class AiSettingsManager(private val store: SecureValueStore) {
         val next = current.filterNot { it.id == id }
         if (!store.putString(PROFILES_KEY, encodeProfiles(next))) return false
         if (store.getString(ACTIVE_PROFILE_KEY) == id) {
-            if (next.isNotEmpty()) store.putString(ACTIVE_PROFILE_KEY, next.first().id)
+            val replacement = next.firstOrNull { it.enabled }
+            if (replacement != null) store.putString(ACTIVE_PROFILE_KEY, replacement.id)
             else store.remove(ACTIVE_PROFILE_KEY)
         }
         return true
@@ -107,6 +108,19 @@ class AiSettingsManager(private val store: SecureValueStore) {
                         supportsImages = (fields["supportsImages"] as? JsonValue.JBool)?.value ?: false,
                         inputUsdPerMillion = fields["inputUsdPerMillion"]?.asString().orEmpty(),
                         outputUsdPerMillion = fields["outputUsdPerMillion"]?.asString().orEmpty(),
+                        enabled = (fields["enabled"] as? JsonValue.JBool)?.value ?: true,
+                        contextWindowTokens = fields["contextWindowTokens"]?.asString().orEmpty(),
+                        availableModels = fields["availableModels"]?.asString().orEmpty(),
+                        supportedTasks = fields["supportedTasks"]?.asArray()?.items.orEmpty().mapNotNull { value ->
+                            value.asString()?.let { runCatching { ModelTask.valueOf(it) }.getOrNull() }
+                        }.toSet(),
+                        capabilityEvidence = fields["capabilityEvidence"]?.asString()?.let {
+                            runCatching { CapabilityEvidence.valueOf(it) }.getOrNull()
+                        } ?: CapabilityEvidence.UNKNOWN,
+                        preference = (fields["preference"] as? JsonValue.JNumber)?.value?.toInt() ?: 0,
+                        providerProtocol = fields["providerProtocol"]?.asString()?.let {
+                            runCatching { ProviderProtocol.valueOf(it) }.getOrNull()
+                        } ?: ProviderProtocol.OPENAI_COMPATIBLE,
                     )
                 }
             }
@@ -126,6 +140,13 @@ class AiSettingsManager(private val store: SecureValueStore) {
             "\"supportsImages\":" + profile.supportsImages,
             "\"inputUsdPerMillion\":" + JsonMini.quote(profile.inputUsdPerMillion),
             "\"outputUsdPerMillion\":" + JsonMini.quote(profile.outputUsdPerMillion),
+            "\"enabled\":" + profile.enabled,
+            "\"contextWindowTokens\":" + JsonMini.quote(profile.contextWindowTokens),
+            "\"availableModels\":" + JsonMini.quote(profile.availableModels),
+            "\"supportedTasks\":[" + profile.supportedTasks.sortedBy { it.name }.joinToString(",") { JsonMini.quote(it.name) } + "]",
+            "\"capabilityEvidence\":" + JsonMini.quote(profile.capabilityEvidence.name),
+            "\"preference\":" + profile.preference,
+            "\"providerProtocol\":" + JsonMini.quote(profile.providerProtocol.name),
         ).joinToString(",") + "}"
     }
 
@@ -142,6 +163,8 @@ class AiSettingsManager(private val store: SecureValueStore) {
             }
             if (settings.model.isBlank()) return "请输入 Model 名称"
             if (settings.apiKey.isBlank() && !hasSavedApiKey) return "请输入 API Key"
+            if (settings.contextWindowTokens.isNotBlank() && settings.contextWindowTokens.toIntOrNull()?.let { it > 0 } != true) return "上下文容量必须是正整数；未知时留空"
+            if (settings.preference !in -20..20) return "模型偏好必须在 -20 至 20 之间"
             if (settings.inputUsdPerMillion.isNotBlank() && settings.inputUsdPerMillion.toDoubleOrNull()?.let { it >= 0 } != true) return "输入 Token 单价必须是非负数字"
             if (settings.outputUsdPerMillion.isNotBlank() && settings.outputUsdPerMillion.toDoubleOrNull()?.let { it >= 0 } != true) return "输出 Token 单价必须是非负数字"
             return null

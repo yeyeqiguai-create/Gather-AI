@@ -53,7 +53,7 @@ class OpenAiCompatProvider(
     ): AppResult<String> = perform(messages, streaming = true, onPhase = onPhase, onDelta = onDelta, onUsage = onUsage)
 
     /** Checks credentials and provider reachability without spending completion tokens. */
-    suspend fun testConnection(): AppResult<Unit> {
+    override suspend fun testConnection(): AppResult<Unit> {
         val config = configProvider()
             ?: return AppResult.failure(AppError.Configuration("AI 服务未配置：请检查 Base URL、模型名和 API Key"))
         if (!config.isConfigured() || !isValidBaseUrl(config.baseUrl)) {
