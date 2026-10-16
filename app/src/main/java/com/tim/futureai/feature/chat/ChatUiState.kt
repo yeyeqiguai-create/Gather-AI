@@ -3,6 +3,7 @@ package com.tim.futureai.feature.chat
 import com.tim.futureai.domain.model.MessageRole
 import com.tim.futureai.domain.model.ChatSession
 import com.tim.futureai.domain.model.MessageStatus
+import com.tim.futureai.domain.model.ChatAttachment
 
 /**
  * 聊天页状态与交互逻辑（纯 Kotlin，可单元测试；渲染交给 ChatScreen）。
@@ -19,9 +20,18 @@ data class ChatUiState(
     val requestStatus: ChatRequestStatus = ChatRequestStatus.IDLE,
     /** 需要展示给用户的提示（错误/配置缺失）；用户可见后可清除。 */
     val notice: String? = null,
+    val modelChoices: List<ChatModelChoice> = emptyList(),
+    val selectedModelId: String? = null,
+    val pendingAttachments: List<ChatAttachment> = emptyList(),
 ) {
-    /** 当前输入是否可发送（非空白且不在请求中）。 */
-    val canSend: Boolean get() = inputText.isNotBlank() && !isLoading && !isHistoryLoading
+    /** 当前文本或所有附件均有效且符合模型能力时可发送。 */
+    val canSend: Boolean get() {
+        val hasImages = pendingAttachments.any { it.mimeType.startsWith("image/") }
+        val imageCapable = modelChoices.firstOrNull { it.id == selectedModelId }?.supportsImages == true
+        val attachmentsReady = pendingAttachments.isNotEmpty() && pendingAttachments.all { it.error == null } && (!hasImages || imageCapable)
+        val attachmentErrors = pendingAttachments.any { it.error != null }
+        return (inputText.isNotBlank() || attachmentsReady) && !attachmentErrors && (!hasImages || imageCapable) && !isLoading && !isHistoryLoading
+    }
 
     /**
      * 发送：把当前输入追加为一条 USER 消息并清空输入框。

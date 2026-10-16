@@ -4,14 +4,20 @@ import com.tim.futureai.core.common.AppError
 import com.tim.futureai.core.common.AppResult
 import com.tim.futureai.domain.ai.AiProvider
 import com.tim.futureai.domain.ai.AiRequestPhase
+import com.tim.futureai.domain.ai.AiTokenUsage
 import com.tim.futureai.domain.chat.ChatSessionData
 import com.tim.futureai.domain.chat.ChatSessionsLoad
 import com.tim.futureai.domain.chat.ChatSessionsRepository
 import com.tim.futureai.domain.chat.ChatSessionsSnapshot
 import com.tim.futureai.domain.model.ChatMessage
+import com.tim.futureai.domain.model.ChatAttachment
 import com.tim.futureai.domain.model.ChatSession
 import com.tim.futureai.domain.model.MessageRole
 import com.tim.futureai.domain.model.MessageStatus
+import com.tim.futureai.feature.settings.AiSettings
+import com.tim.futureai.domain.usage.UsageRecord
+import com.tim.futureai.domain.usage.UsageRepository
+import com.tim.futureai.domain.usage.UsageSnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -41,6 +47,12 @@ class ChatViewModelTest {
             this.snapshot = snapshot
             return !failed
         }
+    }
+
+    private class MemoryUsage : UsageRepository {
+        val records = mutableListOf<UsageRecord>()
+        override suspend fun load() = UsageSnapshot(records.toList())
+        override suspend fun append(record: UsageRecord) { records += record }
     }
 
     private class FakeProvider(
@@ -211,6 +223,98 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun modelChoiceIsSavedIndependentlyPerSession() {
+        val repository = MemoryHistory().apply {
+            snapshot = ChatSessionsSnapshot(
+                listOf(
+                    ChatSessionData(ChatSession(id = "one", title = "一"), emptyList()),
+                    ChatSessionData(ChatSession(id = "two", title = "二"), emptyList()),
+                ),
+                "one",
+            )
+        }
+        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("ok")), sessionsRepository = repository)
+        vm.setModelChoices(listOf(
+            AiSettings(id = "model-a", name = "A", baseUrl = "https://a.example/v1", model = "a", hasSavedApiKey = true),
+            AiSettings(id = "model-b", name = "B", baseUrl = "https://b.example/v1", model = "b", hasSavedApiKey = true),
+        ))
+        assertTrue(vm.selectModel("model-b"))
+        vm.selectSession("two")
+        assertNull(vm.state.selectedModelId)
+        assertTrue(vm.selectModel("model-a"))
+
+        assertEquals("model-b", repository.snapshot.sessions.first { it.session.id == "one" }.session.modelProfileId)
+        assertEquals("model-a", repository.snapshot.sessions.first { it.session.id == "two" }.session.modelProfileId)
+    }
+
+    @Test
+    fun imageAttachmentRequiresVisionModelAndIsSentWithUserTurn() {
+        val provider = FakeProvider(AppResult.success("看到了"))
+        val vm = newVm(provider)
+        vm.setModelChoices(listOf(
+            AiSettings(id = "text", name = "文本", baseUrl = "https://text.example/v1", model = "text", hasSavedApiKey = true),
+            AiSettings(id = "vision", name = "视觉", baseUrl = "https://vision.example/v1", model = "vision", hasSavedApiKey = true, supportsImages = true),
+        ))
+        vm.selectModel("text")
+        val image = ChatAttachment(name = "photo.png", mimeType = "image/png", localPath = "/private/photo.png")
+        vm.addAttachments(listOf(image))
+        assertFalse(vm.state.canSend)
+        assertTrue(vm.state.notice!!.contains("图片输入"))
+
+        vm.selectModel("vision")
+        assertTrue(vm.state.canSend)
+        vm.send()
+        assertEquals(image, provider.received.single().last().attachments.single())
+        assertEquals(listOf(image), vm.state.messages.first().attachments)
+        assertTrue(vm.state.pendingAttachments.isEmpty())
+    }
+
+    @Test
+    fun requestStoresOnlyRealProviderTokenUsageAndTiming() {
+        val usage = MemoryUsage()
+        val provider = object : AiProvider {
+            override suspend fun complete(messages: List<ChatMessage>) = AppResult.success("unused")
+            override suspend fun streamWithUsage(
+                messages: List<ChatMessage>,
+                onPhase: (AiRequestPhase) -> Unit,
+                onDelta: (String) -> Unit,
+                onUsage: (AiTokenUsage) -> Unit,
+            ): AppResult<String> {
+                onDelta("reply")
+                onUsage(AiTokenUsage(11, 5))
+                return AppResult.success("reply")
+            }
+        }
+        val testScope = RecordingScope()
+        val vm = ChatViewModel(testScope, provider, usageRepository = usage)
+        vm.updateInput("question")
+        vm.send()
+
+        assertEquals(1, usage.records.size)
+        assertEquals(11, usage.records.single().promptTokens)
+        assertEquals(5, usage.records.single().completionTokens)
+        assertTrue(usage.records.single().durationMs >= 0)
+        assertNull(usage.records.single().errorType)
+    }
+
+    @Test
+    fun editingUserMessageRestoresInputAndTruncatesDependentReplies() {
+        val attachment = ChatAttachment(name = "notes.md", mimeType = "text/markdown", textContent = "body")
+        val history = MemoryHistory(listOf(
+            ChatMessage(id = "u1", sessionId = "current", role = MessageRole.USER, content = "first"),
+            ChatMessage(id = "a1", sessionId = "current", role = MessageRole.ASSISTANT, content = "answer"),
+            ChatMessage(id = "u2", sessionId = "current", role = MessageRole.USER, content = "second", attachments = listOf(attachment)),
+        ))
+        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("unused")), sessionsRepository = history)
+
+        assertTrue(vm.editUserMessage(2))
+        assertEquals("second", vm.state.inputText)
+        assertEquals(listOf("first", "answer"), vm.state.messages.map { it.text })
+        assertEquals(listOf(attachment), vm.state.pendingAttachments)
+        assertEquals(listOf("first", "answer"), history.messages.map { it.content })
+    }
+
+    @Test
     fun pinTogglePersistsWithoutChangingMessagesOrSessionIdentity() {
         val history = MemoryHistory(listOf(ChatMessage(sessionId = "current", role = MessageRole.USER, content = "保留内容")))
         val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("回复")), sessionsRepository = history)
@@ -373,6 +477,58 @@ class ChatViewModelTest {
         assertEquals(MessageStatus.CANCELLED, vm.state.messages.single().status)
         assertEquals(MessageStatus.CANCELLED, history.messages.single().status)
         assertFalse(vm.state.isLoading)
+        assertEquals(ChatRequestStatus.CANCELLED, vm.state.requestStatus)
+    }
+
+    @Test
+    fun streamedPartialReplyIsVisibleAndPreservedWhenConnectionFails() {
+        val history = MemoryHistory()
+        var streamCalled = false
+        val provider = object : AiProvider {
+            override suspend fun complete(messages: List<ChatMessage>) = AppResult.failure<String>(AppError.Network("offline"))
+            override suspend fun stream(
+                messages: List<ChatMessage>,
+                onPhase: (AiRequestPhase) -> Unit,
+                onDelta: (String) -> Unit,
+            ): AppResult<String> {
+                streamCalled = true
+                onDelta("partial ")
+                onDelta("reply")
+                return AppResult.failure(AppError.Network("offline"))
+            }
+        }
+        val requestScope = RecordingScope()
+        val vm = ChatViewModel(requestScope, provider, sessionsRepository = history)
+        vm.updateInput("流式问题")
+        vm.send()
+
+        assertTrue("provider.stream was not invoked", streamCalled)
+        assertTrue(requestScope.caught.joinToString { it.stackTraceToString() }, requestScope.caught.isEmpty())
+        assertEquals(listOf("流式问题", "partial reply"), vm.state.messages.map { it.text })
+        assertEquals(MessageStatus.FAILED, vm.state.messages[0].status)
+        assertEquals(MessageStatus.FAILED, vm.state.messages[1].status)
+        assertEquals(listOf("流式问题", "partial reply"), history.messages.map { it.content })
+    }
+
+    @Test
+    fun cancellationKeepsPartialStreamMarkedCancelled() {
+        val provider = object : AiProvider {
+            override suspend fun complete(messages: List<ChatMessage>): AppResult<String> = error("stream expected")
+            override suspend fun stream(
+                messages: List<ChatMessage>,
+                onPhase: (AiRequestPhase) -> Unit,
+                onDelta: (String) -> Unit,
+            ): AppResult<String> = suspendCancellableCoroutine { continuation ->
+                onDelta("partial")
+                continuation.invokeOnCancellation { }
+            }
+        }
+        val vm = newVm(provider)
+        vm.updateInput("停止")
+        vm.send()
+        assertEquals("partial", vm.state.messages.last().text)
+        vm.cancel()
+        assertEquals(MessageStatus.CANCELLED, vm.state.messages.last().status)
         assertEquals(ChatRequestStatus.CANCELLED, vm.state.requestStatus)
     }
 

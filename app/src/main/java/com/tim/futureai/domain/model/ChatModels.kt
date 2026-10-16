@@ -13,6 +13,17 @@ enum class MessageRole {
 
 enum class MessageStatus { SENT, GENERATING, FAILED, CANCELLED }
 
+/** App-private attachment reference; binary data stays in internal storage and is sent only on request. */
+data class ChatAttachment(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String,
+    val mimeType: String,
+    val localPath: String = "",
+    val previewPath: String = "",
+    val textContent: String = "",
+    val error: String? = null,
+)
+
 /**
  * 聊天消息（纯 Kotlin，不依赖 Android / 数据库 / 具体 AI 服务商）。
  *
@@ -29,6 +40,7 @@ data class ChatMessage(
     val content: String,
     val createdAt: Instant = Instant.now(),
     val status: MessageStatus = MessageStatus.SENT,
+    val attachments: List<ChatAttachment> = emptyList(),
 ) {
     init {
         require(id.isNotBlank()) { "message id must not be blank" }
@@ -51,6 +63,7 @@ data class ChatSession(
     val createdAt: Instant = Instant.now(),
     val updatedAt: Instant = createdAt,
     val isPinned: Boolean = false,
+    val modelProfileId: String? = null,
 ) {
     init {
         require(id.isNotBlank()) { "session id must not be blank" }

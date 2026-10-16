@@ -3,9 +3,13 @@ package com.tim.futureai.data.ai
 import com.tim.futureai.core.common.AppError
 import com.tim.futureai.domain.model.ChatMessage
 import com.tim.futureai.domain.model.MessageRole
+import com.tim.futureai.domain.model.ChatAttachment
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.BufferedReader
+import java.io.StringReader
+import java.io.File
 
 class OpenAiWireTest {
 
@@ -35,6 +39,70 @@ class OpenAiWireTest {
             model = "m",
         )
         assertTrue(body.contains("\"role\":\"assistant\""))
+    }
+
+    @Test
+    fun buildRequestBody_streamEnablesServerSentEvents() {
+        val body = OpenAiWire.buildRequestBody(emptyList(), "m", stream = true)
+        assertTrue(body.contains("\"stream\":true"))
+    }
+
+    @Test
+    fun buildRequestBody_includesTextAttachmentAndEncodesImageAsDataUrl() {
+        val image = File.createTempFile("gather-image", ".png").apply { writeBytes("hello".toByteArray()) }
+        try {
+            val body = OpenAiWire.buildRequestBody(listOf(ChatMessage(
+                sessionId = "s", role = MessageRole.USER, content = "分析这些内容",
+                attachments = listOf(
+                    ChatAttachment(name = "notes.txt", mimeType = "text/plain", textContent = "文档正文"),
+                    ChatAttachment(name = "photo.png", mimeType = "image/png", localPath = image.absolutePath),
+                ),
+            )), "vision-model")
+            assertTrue(body.contains("type"))
+            assertTrue(body.contains("文档正文"))
+            assertTrue(body.contains("data:image/png;base64,aGVsbG8="))
+        } finally { image.delete() }
+    }
+
+    @Test
+    fun encodeBase64_matchesRfc4648Padding() {
+        assertEquals("TWFu", OpenAiWire.encodeBase64("Man".toByteArray()))
+        assertEquals("TQ==", OpenAiWire.encodeBase64("M".toByteArray()))
+    }
+
+    @Test
+    fun extractTokenUsage_onlyReportsCompleteProviderCounts() {
+        val usage = OpenAiWire.extractTokenUsage("""{"usage":{"prompt_tokens":12,"completion_tokens":7,"total_tokens":19}}""")
+        assertEquals(12, usage?.promptTokens)
+        assertEquals(7, usage?.completionTokens)
+        assertEquals(null, OpenAiWire.extractTokenUsage("""{"usage":{"total_tokens":19}}"""))
+    }
+
+    @Test
+    fun streamReply_emitsDeltasAndStopsAtDone() {
+        val events = """
+            : keep-alive
+            data: {"choices":[{"delta":{"content":"Hello"}}]}
+
+            data: {"choices":[{"delta":{"content":" world"}}]}
+
+            data: [DONE]
+
+        """.trimIndent()
+        val chunks = mutableListOf<String>()
+        val complete = OpenAiWire.streamReply(BufferedReader(StringReader(events))) { chunks += it }
+        assertTrue(complete)
+        assertEquals(listOf("Hello", " world"), chunks)
+    }
+
+    @Test
+    fun streamReply_reportsUnexpectedEndWithoutDone() {
+        val chunks = mutableListOf<String>()
+        val complete = OpenAiWire.streamReply(BufferedReader(StringReader(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n",
+        ))) { chunks += it }
+        assertTrue(!complete)
+        assertEquals(listOf("partial"), chunks)
     }
 
     // ---- 响应解析 ----

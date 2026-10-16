@@ -20,9 +20,29 @@ interface AiProvider {
         onPhase(AiRequestPhase.REQUESTING)
         return complete(messages)
     }
+
+    /** Streams assistant deltas; simple providers remain compatible by emitting their final reply once. */
+    suspend fun stream(
+        messages: List<ChatMessage>,
+        onPhase: (AiRequestPhase) -> Unit = {},
+        onDelta: (String) -> Unit,
+    ): AppResult<String> {
+        val result = complete(messages, onPhase)
+        if (result is AppResult.Success) onDelta(result.data)
+        return result
+    }
+
+    suspend fun streamWithUsage(
+        messages: List<ChatMessage>,
+        onPhase: (AiRequestPhase) -> Unit = {},
+        onDelta: (String) -> Unit,
+        onUsage: (AiTokenUsage) -> Unit,
+    ): AppResult<String> = stream(messages, onPhase, onDelta)
 }
 
 enum class AiRequestPhase { REQUESTING, RECEIVING_REPLY }
+
+data class AiTokenUsage(val promptTokens: Int, val completionTokens: Int)
 
 /**
  * OpenAI Chat Completions 兼容服务商配置。

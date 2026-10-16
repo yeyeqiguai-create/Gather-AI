@@ -81,6 +81,11 @@ import kotlinx.coroutines.launch
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import com.tim.futureai.domain.model.ChatAttachment
 
 private val ExamplePrompts = listOf(
     "把复杂概念讲得简单一点",
@@ -104,6 +109,15 @@ fun ChatScreen(
     onRenameSession: (String, String) -> Boolean = { _, _ -> false },
     onToggleSessionPinned: (String) -> Boolean = { false },
     onDeleteSession: (String) -> Boolean = { false },
+    onModelSelected: (String?) -> Unit = {},
+    onPickAttachments: () -> Unit = {},
+    onRemoveAttachment: (String) -> Unit = {},
+    onListen: () -> Unit = {},
+    onSpeak: (String, String) -> Unit = { _, _ -> },
+    speakingMessageKey: String? = null,
+    onEditMessage: (Int) -> Unit = {},
+    onShareMessage: (String) -> Unit = {},
+    onExportSession: () -> Unit = {},
     isAiConfigured: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
@@ -113,7 +127,7 @@ fun ChatScreen(
             modifier = Modifier.fillMaxSize(),
             containerColor = Color.Transparent,
             contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
-            topBar = { BrandBar(state.sessionTitle, { showSessionManager = true }, onSettingsClick) },
+            topBar = { BrandBar(state.sessionTitle, state.modelChoices, state.selectedModelId, onModelSelected, onExportSession, { showSessionManager = true }, onSettingsClick) },
             bottomBar = {
                 Composer(
                     text = state.inputText,
@@ -122,6 +136,10 @@ fun ChatScreen(
                     onTextChanged = onInputChanged,
                     onSend = onSend,
                     onCancel = onCancel,
+                    attachments = state.pendingAttachments,
+                    onPickAttachments = onPickAttachments,
+                    onRemoveAttachment = onRemoveAttachment,
+                    onListen = onListen,
                 )
             },
         ) { insets ->
@@ -129,12 +147,15 @@ fun ChatScreen(
                 modifier = Modifier.fillMaxSize().padding(insets),
             ) {
                 if (state.messages.isEmpty()) {
-                    WelcomeContent(
-                        configured = isAiConfigured,
-                        onSettingsClick = onSettingsClick,
-                        onExamplePrompt = onExamplePrompt,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                    Column(Modifier.fillMaxSize()) {
+                        WelcomeContent(
+                            configured = isAiConfigured,
+                            onSettingsClick = onSettingsClick,
+                            onExamplePrompt = onExamplePrompt,
+                            modifier = Modifier.weight(1f),
+                        )
+                        state.notice?.let { NoticeCard(it, onDismissNotice, modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)) }
+                    }
                 } else {
                     if (!isAiConfigured) {
                         SetupStatusCard(onClick = onSettingsClick, modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
@@ -142,9 +163,8 @@ fun ChatScreen(
                     if (state.requestStatus != ChatRequestStatus.IDLE) {
                         RequestStatusCard(state.requestStatus, Modifier.padding(horizontal = 18.dp, vertical = 5.dp))
                     }
-                    val retryIndex = state.messages.lastIndex.takeIf { index ->
-                        index >= 0 && state.messages[index].role == MessageRole.USER &&
-                            state.messages[index].status in setOf(MessageStatus.FAILED, MessageStatus.CANCELLED)
+                    val retryIndex = state.messages.indexOfLast { it.role == MessageRole.USER }.takeIf { index ->
+                        index >= 0 && state.messages[index].status in setOf(MessageStatus.FAILED, MessageStatus.CANCELLED)
                     }
                     state.notice?.let {
                         NoticeCard(it, onDismissNotice, retryIndex?.let { index -> { onRetry(index) } }, Modifier.padding(horizontal = 18.dp, vertical = 6.dp))
@@ -153,6 +173,10 @@ fun ChatScreen(
                         messages = state.messages,
                         onRegenerate = onRegenerate,
                         onRetry = onRetry,
+                        speakingMessageKey = speakingMessageKey,
+                        onSpeak = onSpeak,
+                        onEditMessage = onEditMessage,
+                        onShareMessage = onShareMessage,
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                     )
                 }
@@ -172,7 +196,16 @@ fun ChatScreen(
 }
 
 @Composable
-private fun BrandBar(sessionTitle: String, onSessionsClick: () -> Unit, onSettingsClick: () -> Unit) {
+private fun BrandBar(
+    sessionTitle: String,
+    modelChoices: List<ChatModelChoice>,
+    selectedModelId: String?,
+    onModelSelected: (String?) -> Unit,
+    onExportSession: () -> Unit,
+    onSessionsClick: () -> Unit,
+    onSettingsClick: () -> Unit,
+) {
+    var modelMenuExpanded by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(top = 12.dp, start = 22.dp, end = 18.dp, bottom = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -187,6 +220,25 @@ private fun BrandBar(sessionTitle: String, onSessionsClick: () -> Unit, onSettin
         Column(modifier = Modifier.weight(1f)) {
             Text("Gather AI", color = FuturePalette.Text, fontSize = 19.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp)
             Text(sessionTitle, color = FuturePalette.Muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (modelChoices.isNotEmpty()) {
+                val selectedModel = modelChoices.firstOrNull { it.id == selectedModelId }
+                Box {
+                    Text(
+                        "模型 · ${selectedModel?.displayName ?: "选择模型"}  ▾",
+                        color = FuturePalette.Cyan, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable { modelMenuExpanded = true },
+                    )
+                    DropdownMenu(expanded = modelMenuExpanded, onDismissRequest = { modelMenuExpanded = false }) {
+                        modelChoices.forEach { choice -> DropdownMenuItem(
+                            text = { Text(choice.displayName) },
+                            onClick = { onModelSelected(choice.id); modelMenuExpanded = false },
+                        ) }
+                    }
+                }
+            }
+        }
+        Box(Modifier.size(38.dp).clip(CircleShape).clickable(onClick = onExportSession), contentAlignment = Alignment.Center) {
+            Text("⇩", color = FuturePalette.Cyan, fontSize = 20.sp)
         }
         Box(
             modifier = Modifier.size(44.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onSessionsClick),
@@ -420,8 +472,13 @@ private fun PromptCard(text: String, index: Int, onClick: () -> Unit) {
 }
 
 @Composable
-private fun Conversation(messages: List<ChatBubble>, onRegenerate: (Int) -> Unit, onRetry: (Int) -> Unit, modifier: Modifier = Modifier) {
+private fun Conversation(
+    messages: List<ChatBubble>, onRegenerate: (Int) -> Unit, onRetry: (Int) -> Unit,
+    speakingMessageKey: String?, onSpeak: (String, String) -> Unit,
+    onEditMessage: (Int) -> Unit, onShareMessage: (String) -> Unit, modifier: Modifier = Modifier,
+) {
     val listState = rememberLazyListState()
+    val retryUserIndex = messages.indexOfLast { it.role == MessageRole.USER }
     LaunchedEffect(messages.size) { if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex) }
     LazyColumn(
         state = listState,
@@ -429,12 +486,19 @@ private fun Conversation(messages: List<ChatBubble>, onRegenerate: (Int) -> Unit
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        itemsIndexed(messages) { index, message -> MessageBubble(message, index, index == messages.lastIndex, onRegenerate, onRetry) }
+        itemsIndexed(messages) { index, message ->
+            val key = "$index:${message.text.hashCode()}"
+            MessageBubble(message, index, index == retryUserIndex, onRegenerate, onRetry, key, speakingMessageKey == key, onSpeak, onEditMessage, onShareMessage)
+        }
     }
 }
 
 @Composable
-private fun MessageBubble(message: ChatBubble, index: Int, canRetry: Boolean, onRegenerate: (Int) -> Unit, onRetry: (Int) -> Unit) {
+private fun MessageBubble(
+    message: ChatBubble, index: Int, canRetry: Boolean, onRegenerate: (Int) -> Unit, onRetry: (Int) -> Unit,
+    messageKey: String, isSpeaking: Boolean, onSpeak: (String, String) -> Unit,
+    onEditMessage: (Int) -> Unit, onShareMessage: (String) -> Unit,
+) {
     val isUser = message.role == MessageRole.USER
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -459,6 +523,9 @@ private fun MessageBubble(message: ChatBubble, index: Int, canRetry: Boolean, on
         ) {
             Text(if (isUser) "你" else "GATHER AI", color = if (isUser) Color(0xFFDCD5FF) else FuturePalette.Cyan, fontSize = 9.sp, letterSpacing = 1.15.sp, fontWeight = FontWeight.SemiBold)
             if (isUser) {
+                message.attachments.forEach { attachment ->
+                    Text("📎 ${attachment.name}", color = FuturePalette.Cyan, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
                 Text(message.text, color = FuturePalette.Text, fontSize = 14.sp, lineHeight = 23.sp)
             } else {
                 MarkdownMessage(message.text, onCopyCode = { code ->
@@ -481,6 +548,15 @@ private fun MessageBubble(message: ChatBubble, index: Int, canRetry: Boolean, on
                     FutureGlyph("copy", tint = FuturePalette.Muted, size = 14.dp)
                     Spacer(Modifier.width(4.dp))
                     Text(if (copied) "已复制" else "复制", color = if (copied) FuturePalette.Cyan else FuturePalette.Muted, fontSize = 10.sp)
+                }
+                TextButton(onClick = { onShareMessage(message.text) }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
+                    Text("分享", color = FuturePalette.Muted, fontSize = 10.sp)
+                }
+                if (isUser) TextButton(onClick = { onEditMessage(index) }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
+                    Text("编辑", color = FuturePalette.VioletBright, fontSize = 10.sp)
+                }
+                if (!isUser) TextButton(onClick = { onSpeak(messageKey, message.text) }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
+                    Text(if (isSpeaking) "停止朗读" else "朗读", color = if (isSpeaking) FuturePalette.Cyan else FuturePalette.Muted, fontSize = 10.sp)
                 }
                 if (!isUser) TextButton(onClick = { onRegenerate(index) }, enabled = message.status != MessageStatus.GENERATING, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
                     FutureGlyph("retry", tint = FuturePalette.VioletBright, size = 14.dp)
@@ -619,6 +695,26 @@ private fun NoticeCard(text: String, onDismiss: () -> Unit, onRetry: (() -> Unit
 }
 
 @Composable
+private fun AttachmentPreview(attachment: ChatAttachment, onRemove: () -> Unit) {
+    val thumbnail = remember(attachment.previewPath) {
+        attachment.previewPath.takeIf { it.isNotBlank() }?.let(BitmapFactory::decodeFile)?.asImageBitmap()
+    }
+    Row(
+        modifier = Modifier.widthIn(min = 145.dp, max = 220.dp).clip(RoundedCornerShape(15.dp))
+            .background(Color(0x44101421)).padding(7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (thumbnail != null) Image(thumbnail, contentDescription = attachment.name, modifier = Modifier.size(40.dp).clip(RoundedCornerShape(9.dp)), contentScale = ContentScale.Crop)
+        else Text("📎", modifier = Modifier.padding(horizontal = 8.dp), color = FuturePalette.Cyan, fontSize = 18.sp)
+        Column(Modifier.weight(1f)) {
+            Text(attachment.name, color = FuturePalette.Text, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(attachment.error ?: attachment.mimeType, color = if (attachment.error == null) FuturePalette.Muted else FuturePalette.Danger, fontSize = 8.sp, maxLines = 2)
+        }
+        TextButton(onClick = onRemove, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) { Text("×", color = FuturePalette.Muted) }
+    }
+}
+
+@Composable
 private fun Composer(
     text: String,
     isLoading: Boolean,
@@ -626,12 +722,20 @@ private fun Composer(
     onTextChanged: (String) -> Unit,
     onSend: () -> Unit,
     onCancel: () -> Unit,
+    attachments: List<ChatAttachment>,
+    onPickAttachments: () -> Unit,
+    onRemoveAttachment: (String) -> Unit,
+    onListen: () -> Unit,
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
     Column(
         modifier = Modifier.fillMaxWidth().imePadding().navigationBarsPadding().padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 8.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
+        if (attachments.isNotEmpty()) Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) { attachments.forEach { attachment -> AttachmentPreview(attachment) { onRemoveAttachment(attachment.id) } } }
         Row(
             modifier = Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(27.dp)).padding(start = 17.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -652,7 +756,14 @@ private fun Composer(
                     }
                 },
             )
-            Spacer(Modifier.width(10.dp))
+            Box(
+                modifier = Modifier.size(38.dp).clip(CircleShape).clickable(enabled = !isLoading, onClick = onPickAttachments),
+                contentAlignment = Alignment.Center,
+            ) { Text("＋", color = FuturePalette.Cyan, fontSize = 23.sp) }
+            Box(Modifier.size(36.dp).clip(CircleShape).clickable(enabled = !isLoading, onClick = onListen), contentAlignment = Alignment.Center) {
+                Text("🎙", fontSize = 17.sp)
+            }
+            Spacer(Modifier.width(3.dp))
             Box(
                 modifier = Modifier.size(44.dp).clip(CircleShape)
             .background(if (isLoading) Brush.linearGradient(listOf(Color(0xFF3C345A), Color(0xFF28243B))) else if (canSend) Brush.linearGradient(listOf(FuturePalette.Violet, Color(0xFF6351B5))) else Brush.linearGradient(listOf(Color(0xFF292C3A), Color(0xFF222532))))

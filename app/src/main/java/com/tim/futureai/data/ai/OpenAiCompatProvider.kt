@@ -6,11 +6,13 @@ import com.tim.futureai.core.common.NetworkFailureKind
 import com.tim.futureai.core.common.toAppError
 import com.tim.futureai.domain.ai.AiChatConfig
 import com.tim.futureai.domain.ai.AiRequestPhase
+import com.tim.futureai.domain.ai.AiTokenUsage
 import com.tim.futureai.domain.ai.AiProvider
 import com.tim.futureai.domain.model.ChatMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 import java.util.concurrent.atomic.AtomicReference
 import java.io.IOException
@@ -34,7 +36,65 @@ class OpenAiCompatProvider(
 
     override suspend fun complete(messages: List<ChatMessage>): AppResult<String> = complete(messages) {}
 
-    override suspend fun complete(messages: List<ChatMessage>, onPhase: (AiRequestPhase) -> Unit): AppResult<String> {
+    override suspend fun complete(messages: List<ChatMessage>, onPhase: (AiRequestPhase) -> Unit): AppResult<String> =
+        perform(messages, streaming = false, onPhase = onPhase, onDelta = {}, onUsage = {})
+
+    override suspend fun stream(
+        messages: List<ChatMessage>,
+        onPhase: (AiRequestPhase) -> Unit,
+        onDelta: (String) -> Unit,
+    ): AppResult<String> = perform(messages, streaming = true, onPhase = onPhase, onDelta = onDelta, onUsage = {})
+
+    override suspend fun streamWithUsage(
+        messages: List<ChatMessage>,
+        onPhase: (AiRequestPhase) -> Unit,
+        onDelta: (String) -> Unit,
+        onUsage: (AiTokenUsage) -> Unit,
+    ): AppResult<String> = perform(messages, streaming = true, onPhase = onPhase, onDelta = onDelta, onUsage = onUsage)
+
+    /** Checks credentials and provider reachability without spending completion tokens. */
+    suspend fun testConnection(): AppResult<Unit> {
+        val config = configProvider()
+            ?: return AppResult.failure(AppError.Configuration("AI 服务未配置：请检查 Base URL、模型名和 API Key"))
+        if (!config.isConfigured() || !isValidBaseUrl(config.baseUrl)) {
+            return AppResult.failure(AppError.Configuration("AI 配置无效，请检查 Base URL、模型名和 API Key"))
+        }
+        return withContext(Dispatchers.IO) {
+            var connection: HttpURLConnection? = null
+            try {
+                connection = (URL("${config.baseUrl.trimEnd('/')}/models").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = connectTimeoutMs
+                    readTimeout = readTimeoutMs
+                    setRequestProperty("Authorization", "Bearer ${config.apiKey}")
+                    setRequestProperty("Accept", "application/json")
+                }
+                val code = connection.responseCode
+                if (code in 200..299) AppResult.Success(Unit)
+                else {
+                    val body = connection.errorStream?.bufferedReader()?.use { it.readText().take(1000) }.orEmpty()
+                    val message = sanitize(OpenAiWire.extractErrorMessage(sanitize(body, config.apiKey)), config.apiKey)
+                    AppResult.failure(mapHttpError(code, message))
+                }
+            } catch (e: SocketTimeoutException) {
+                AppResult.failure(AppError.Network("Connection test timed out", e, NetworkFailureKind.TIMEOUT))
+            } catch (e: IOException) {
+                AppResult.failure(AppError.Network("Could not reach the configured provider", e, NetworkFailureKind.CONNECTION))
+            } catch (e: Exception) {
+                AppResult.failure(AppError.Unknown("Connection test failed", e))
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
+
+    private suspend fun perform(
+        messages: List<ChatMessage>,
+        streaming: Boolean,
+        onPhase: (AiRequestPhase) -> Unit,
+        onDelta: (String) -> Unit,
+        onUsage: (AiTokenUsage) -> Unit,
+    ): AppResult<String> {
         val config = configProvider()
             ?: return AppResult.failure(AppError.Configuration("AI 服务未配置：请检查 Base URL、模型名和 API Key"))
         if (!config.isConfigured()) {
@@ -47,7 +107,7 @@ class OpenAiCompatProvider(
             Dispatchers.IO.dispatch(continuation.context, Runnable {
                 if (!continuation.isActive) return@Runnable
                 onPhase(AiRequestPhase.REQUESTING)
-                val result = execute(config, messages, connection, { continuation.isActive }) {
+                val result = execute(config, messages, connection, { continuation.isActive }, streaming, onDelta, onUsage) {
                     onPhase(AiRequestPhase.RECEIVING_REPLY)
                 }
                 try {
@@ -64,6 +124,9 @@ class OpenAiCompatProvider(
         messages: List<ChatMessage>,
         connection: AtomicReference<HttpURLConnection?>,
         isActive: () -> Boolean,
+        streaming: Boolean,
+        onDelta: (String) -> Unit,
+        onUsage: (AiTokenUsage) -> Unit,
         onResponseReceived: () -> Unit,
     ): AppResult<String> {
         val conn = try {
@@ -74,6 +137,7 @@ class OpenAiCompatProvider(
                 readTimeout = readTimeoutMs
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
+                if (streaming) setRequestProperty("Accept", "text/event-stream")
                 setRequestProperty("Authorization", "Bearer ${config.apiKey}")
             }
         } catch (e: Exception) {
@@ -87,14 +151,31 @@ class OpenAiCompatProvider(
         }
 
         try {
-            val body = OpenAiWire.buildRequestBody(messages, config.model)
+            val body = OpenAiWire.buildRequestBody(messages, config.model, stream = streaming)
             conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
 
             val code = conn.responseCode
             onResponseReceived()
             if (code in 200..299) {
+                if (streaming) {
+                    val fullReply = StringBuilder()
+                    val completed = conn.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                        OpenAiWire.streamReply(reader, onUsage = onUsage) { delta ->
+                            fullReply.append(delta)
+                            onDelta(delta)
+                        }
+                    }
+                    if (!completed) {
+                        return AppResult.failure(AppError.Network(
+                            "AI stream ended before completion", null, NetworkFailureKind.CONNECTION,
+                        ))
+                    }
+                    if (fullReply.isBlank()) return AppResult.failure(AppError.Parse("Empty assistant response"))
+                    return AppResult.success(fullReply.toString())
+                }
                 val responseBody = conn.inputStream.bufferedReader().readText()
                 return try {
+                    OpenAiWire.extractTokenUsage(responseBody)?.let(onUsage)
                     AppResult.success(OpenAiWire.extractReplyContent(responseBody))
                 } catch (e: OpenAiWire.ResponseParseException) {
                     AppResult.failure(AppError.Parse(e.message, e))

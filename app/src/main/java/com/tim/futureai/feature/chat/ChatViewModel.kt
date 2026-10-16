@@ -9,12 +9,17 @@ import com.tim.futureai.domain.chat.ChatSessionsRepository
 import com.tim.futureai.domain.chat.ChatSessionsSnapshot
 import com.tim.futureai.domain.model.ChatMessage
 import com.tim.futureai.domain.model.ChatSession
+import com.tim.futureai.domain.model.ChatAttachment
+import com.tim.futureai.domain.ai.AiTokenUsage
+import com.tim.futureai.domain.usage.UsageRecord
+import com.tim.futureai.domain.usage.UsageRepository
 import com.tim.futureai.domain.model.MessageRole
 import com.tim.futureai.domain.model.MessageStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.time.Instant
+import com.tim.futureai.feature.settings.AiSettings
 
 /** Chat state holder and local-session coordinator. */
 class ChatViewModel(
@@ -22,6 +27,9 @@ class ChatViewModel(
     private val provider: AiProvider,
     initial: ChatUiState = ChatUiState(),
     private val sessionsRepository: ChatSessionsRepository? = null,
+    private val providerForProfileId: ((String?) -> AiProvider)? = null,
+    private val defaultModelProfileId: () -> String? = { null },
+    private val usageRepository: UsageRepository? = null,
 ) {
     private var sessionData = mutableListOf<ChatSessionData>()
     private var _state = initial.copy(isHistoryLoading = sessionsRepository != null)
@@ -30,6 +38,13 @@ class ChatViewModel(
     private var sendJob: Job? = null
     private var activeUserIndex: Int? = null
     private var activeAssistantIndex: Int? = null
+    private var activeAssistantHasDelta = false
+    private val streamTextLock = Any()
+    private var activeStreamText = StringBuilder()
+    private var activeRequestStartedAtNanos: Long? = null
+    private var activeRequestProfileId: String? = null
+    private var activeRequestProviderName: String = "默认配置"
+    private var activeRequestModelName: String = "未知"
     private var requestGeneration = 0L
     private val requestStatusBySession = mutableMapOf<String, ChatRequestStatus>()
 
@@ -40,16 +55,17 @@ class ChatViewModel(
             sessionData = (snapshot?.sessions?.takeIf { it.isNotEmpty() } ?: listOf(defaultSession())).toMutableList()
             val active = sessionData.firstOrNull { it.session.id == snapshot?.activeSessionId } ?: sessionData.first()
             val bubbles = active.messages.map { m ->
-                ChatBubble(m.role, m.content, if (m.status == MessageStatus.GENERATING) MessageStatus.FAILED else m.status)
+                ChatBubble(m.role, m.content, if (m.status == MessageStatus.GENERATING) MessageStatus.FAILED else m.status, m.attachments)
             }
             sessionData.forEach { data ->
-                requestStatusBySession[data.session.id] = statusForMessages(data.messages.map { ChatBubble(it.role, it.content, it.status) })
+                requestStatusBySession[data.session.id] = statusForMessages(data.messages.map { ChatBubble(it.role, it.content, it.status, it.attachments) })
             }
             setState(_state.copy(
                 activeSessionId = active.session.id,
                 sessionTitle = active.session.title,
                 sessions = sessionData.map { it.session },
                 messages = bubbles,
+                selectedModelId = active.session.modelProfileId ?: defaultModelProfileId(),
                 isHistoryLoading = false,
                 requestStatus = statusForMessages(bubbles),
                 notice = if (loaded?.failed == true || loaded == null) "本地会话读取失败，已创建新会话" else null,
@@ -57,12 +73,86 @@ class ChatViewModel(
         } else {
             val first = defaultSession()
             sessionData += first
-            _state = initial.copy(activeSessionId = first.session.id, sessionTitle = first.session.title, sessions = listOf(first.session))
+            _state = initial.copy(activeSessionId = first.session.id, sessionTitle = first.session.title, sessions = listOf(first.session), selectedModelId = first.session.modelProfileId)
         }
     }
 
     fun updateInput(text: String) = setState(_state.updateInput(text))
     fun dismissNotice() = setState(_state.dismissNotice())
+    fun showNotice(message: String) = setState(_state.copy(notice = message))
+
+    fun addAttachments(attachments: List<ChatAttachment>) {
+        if (_state.isLoading || attachments.isEmpty()) return
+        val combined = (_state.pendingAttachments + attachments).take(5)
+        val tooMany = _state.pendingAttachments.size + attachments.size > 5
+        val limited = if (tooMany && combined.isNotEmpty()) combined.dropLast(1) + combined.last().copy(error = "每次最多添加 5 个附件") else combined
+        val error = limited.firstOrNull { it.error != null }?.error
+        val unsupportedImage = limited.any { it.mimeType.startsWith("image/") } &&
+            _state.modelChoices.firstOrNull { it.id == _state.selectedModelId }?.supportsImages != true
+        setState(_state.copy(
+            pendingAttachments = limited,
+            notice = error ?: if (unsupportedImage) "当前模型未启用图片输入；请确认模型能力或更换模型" else null,
+        ))
+    }
+
+    fun removeAttachment(id: String) {
+        val pending = _state.pendingAttachments.filterNot { it.id == id }
+        val unsupportedImage = pending.any { it.mimeType.startsWith("image/") } &&
+            _state.modelChoices.firstOrNull { it.id == _state.selectedModelId }?.supportsImages != true
+        setState(_state.copy(
+            pendingAttachments = pending,
+            notice = pending.firstOrNull { it.error != null }?.error
+                ?: if (unsupportedImage) "当前模型未启用图片输入；请更换模型" else null,
+        ))
+    }
+
+    fun editUserMessage(index: Int): Boolean {
+        if (_state.isLoading || _state.isHistoryLoading || index !in _state.messages.indices) return false
+        val message = _state.messages[index]
+        if (message.role != MessageRole.USER) return false
+        val remaining = _state.messages.take(index)
+        syncActiveMessages(remaining)
+        setState(_state.copy(
+            messages = remaining,
+            inputText = message.text,
+            pendingAttachments = message.attachments,
+            requestStatus = statusForMessages(remaining),
+            notice = null,
+        ))
+        persistAll()
+        return true
+    }
+
+    fun setModelChoices(profiles: List<AiSettings>) {
+        val choices = profiles.filter { it.isConfigured }.map { ChatModelChoice(it.id, "${it.name} · ${it.model}", it.supportsImages) }
+        val currentId = sessionData.firstOrNull { it.session.id == _state.activeSessionId }?.session?.modelProfileId
+        val selectedId = currentId ?: defaultModelProfileId()
+        val unsupported = _state.pendingAttachments.any { it.mimeType.startsWith("image/") } &&
+            choices.firstOrNull { it.id == selectedId }?.supportsImages != true
+        setState(_state.copy(
+            modelChoices = choices,
+            selectedModelId = selectedId,
+            notice = if (unsupported) "当前模型未启用图片输入；请更换模型" else _state.notice,
+        ))
+    }
+
+    fun selectModel(profileId: String?): Boolean {
+        if (_state.isLoading || _state.isHistoryLoading) return false
+        if (profileId != null && _state.modelChoices.none { it.id == profileId }) return false
+        val index = sessionData.indexOfFirst { it.session.id == _state.activeSessionId }
+        if (index < 0) return false
+        val current = sessionData[index]
+        sessionData[index] = current.copy(session = current.session.copy(modelProfileId = profileId))
+        val unsupported = _state.pendingAttachments.any { it.mimeType.startsWith("image/") } &&
+            _state.modelChoices.firstOrNull { it.id == profileId }?.supportsImages != true
+        setState(_state.copy(
+            selectedModelId = profileId,
+            sessions = sessionData.map { it.session },
+            notice = if (unsupported) "当前模型未启用图片输入；请更换模型" else null,
+        ))
+        persistAll()
+        return true
+    }
 
     fun newSession() {
         if (_state.isHistoryLoading) return
@@ -120,19 +210,21 @@ class ChatViewModel(
         val current = _state
         if (current.isLoading || current.isHistoryLoading || !current.canSend) return
         val sessionId = current.activeSessionId
-        val history = current.messages.map { ChatMessage(sessionId = sessionId, role = it.role, content = it.text, status = it.status) } +
-            ChatMessage(sessionId = sessionId, role = MessageRole.USER, content = current.inputText.trim())
+        val attachments = current.pendingAttachments
+        val text = current.inputText.trim().ifBlank { "请分析附件" }
+        val history = current.messages.map { ChatMessage(sessionId = sessionId, role = it.role, content = it.text, status = it.status, attachments = it.attachments) } +
+            ChatMessage(sessionId = sessionId, role = MessageRole.USER, content = text, attachments = attachments)
         val userIndex = current.messages.size
-        val text = current.inputText.trim()
-        val user = ChatBubble(MessageRole.USER, text, MessageStatus.GENERATING)
+        val user = ChatBubble(MessageRole.USER, text, MessageStatus.GENERATING, attachments)
         val messages = current.messages + user
         val defaultTitle = sessionData.firstOrNull { it.session.id == sessionId }?.session?.title == "新对话"
         val title = if (defaultTitle && userIndex == 0) text.take(48) else current.sessionTitle
         requestStatusBySession[sessionId] = ChatRequestStatus.PREPARING
-        setState(current.copy(messages = messages, inputText = "", isLoading = true, requestStatus = ChatRequestStatus.PREPARING, notice = null, sessionTitle = title))
+        setState(current.copy(messages = messages, inputText = "", pendingAttachments = emptyList(), isLoading = true, requestStatus = ChatRequestStatus.PREPARING, notice = null, sessionTitle = title))
         updateSessionTitle(sessionId, title)
         activeUserIndex = userIndex
         activeAssistantIndex = null
+        activeAssistantHasDelta = false
         val requestId = ++requestGeneration
         sendJob = scope.launch { runRequest(requestId, sessionId, history, userIndex, null) }
     }
@@ -142,11 +234,12 @@ class ChatViewModel(
         if (current.isLoading || current.isHistoryLoading || assistantIndex !in current.messages.indices) return
         if (current.messages[assistantIndex].role != MessageRole.ASSISTANT) return
         val userIndex = (assistantIndex - 1 downTo 0).firstOrNull { current.messages[it].role == MessageRole.USER } ?: return
-        val history = current.messages.take(userIndex + 1).map { ChatMessage(sessionId = current.activeSessionId, role = it.role, content = it.text) }
+        val history = current.messages.take(userIndex + 1).map { ChatMessage(sessionId = current.activeSessionId, role = it.role, content = it.text, attachments = it.attachments) }
         requestStatusBySession[current.activeSessionId] = ChatRequestStatus.PREPARING
         setState(current.copy(isLoading = true, requestStatus = ChatRequestStatus.PREPARING, notice = null))
         activeUserIndex = userIndex
         activeAssistantIndex = assistantIndex
+        activeAssistantHasDelta = false
         val requestId = ++requestGeneration
         sendJob = scope.launch { runRequest(requestId, current.activeSessionId, history, userIndex, assistantIndex) }
     }
@@ -156,23 +249,35 @@ class ChatViewModel(
         if (current.isLoading || current.isHistoryLoading || userIndex != current.messages.lastIndex) return
         val user = current.messages.getOrNull(userIndex) ?: return
         if (user.role != MessageRole.USER || user.status !in setOf(MessageStatus.FAILED, MessageStatus.CANCELLED)) return
-        val history = current.messages.take(userIndex + 1).map { ChatMessage(sessionId = current.activeSessionId, role = it.role, content = it.text) }
+        val history = current.messages.take(userIndex + 1).map { ChatMessage(sessionId = current.activeSessionId, role = it.role, content = it.text, attachments = it.attachments) }
         val next = current.messages.toMutableList().also { it[userIndex] = user.copy(status = MessageStatus.GENERATING) }
         requestStatusBySession[current.activeSessionId] = ChatRequestStatus.PREPARING
         setState(current.copy(messages = next, isLoading = true, requestStatus = ChatRequestStatus.PREPARING, notice = null))
         activeUserIndex = userIndex
         activeAssistantIndex = null
+        activeAssistantHasDelta = false
         val requestId = ++requestGeneration
         sendJob = scope.launch { runRequest(requestId, current.activeSessionId, history, userIndex, null) }
     }
 
     private suspend fun runRequest(requestId: Long, sessionId: String, history: List<ChatMessage>, userIndex: Int, assistantIndex: Int?) {
         if (!isCurrentRequest(requestId, sessionId)) return
+        val streamText = StringBuilder()
+        synchronized(streamTextLock) { activeStreamText = streamText }
+        val profileId = sessionData.firstOrNull { it.session.id == sessionId }?.session?.modelProfileId
+        val selectedChoice = _state.modelChoices.firstOrNull { it.id == profileId }
+            ?: _state.modelChoices.firstOrNull { it.id == _state.selectedModelId }
+        activeRequestStartedAtNanos = System.nanoTime()
+        activeRequestProfileId = profileId
+        activeRequestProviderName = selectedChoice?.displayName ?: "默认配置"
+        activeRequestModelName = selectedChoice?.displayName ?: "未知"
+        val tokenUsage = java.util.concurrent.atomic.AtomicReference<AiTokenUsage?>(null)
         requestStatusBySession[sessionId] = ChatRequestStatus.REQUESTING
         setState(_state.copy(requestStatus = ChatRequestStatus.REQUESTING))
         persistAll()
         val result = try {
-            provider.complete(history) { phase ->
+            (providerForProfileId?.invoke(profileId) ?: provider)
+                .streamWithUsage(history, onPhase = { phase ->
                 val status = when (phase) {
                     AiRequestPhase.REQUESTING -> ChatRequestStatus.REQUESTING
                     AiRequestPhase.RECEIVING_REPLY -> ChatRequestStatus.RECEIVING_REPLY
@@ -183,22 +288,54 @@ class ChatViewModel(
                         setState(_state.copy(requestStatus = status))
                     }
                 }
-            }
+            }, onDelta = { delta ->
+                if (delta.isNotEmpty()) {
+                    synchronized(streamTextLock) { streamText.append(delta) }
+                    scope.launch {
+                        if (isCurrentRequest(requestId, sessionId)) appendAssistantDelta(assistantIndex, delta)
+                    }
+                }
+            }, onUsage = tokenUsage::set)
         }
         catch (_: kotlinx.coroutines.CancellationException) { return }
         catch (_: Exception) { AppResult.failure(AppError.Unknown("请求失败，请检查网络或服务配置后重试")) }
+        val completePartial = synchronized(streamTextLock) { streamText.toString() }
+        if (completePartial.isNotEmpty() && isCurrentRequest(requestId, sessionId)) {
+            setAssistantStreamText(assistantIndex, completePartial)
+        }
         if (!isCurrentRequest(requestId, sessionId)) return
+        val startedAt = activeRequestStartedAtNanos
+        activeRequestStartedAtNanos = null
+        if (startedAt != null) runCatching {
+            usageRepository?.append(UsageRecord(
+                profileId = activeRequestProfileId,
+                providerName = activeRequestProviderName,
+                model = activeRequestModelName,
+                durationMs = ((System.nanoTime() - startedAt) / 1_000_000L).coerceAtLeast(0),
+                errorType = (result as? AppResult.Failure)?.error?.javaClass?.simpleName,
+                promptTokens = tokenUsage.get()?.promptTokens,
+                completionTokens = tokenUsage.get()?.completionTokens,
+            ))
+        }
         val messages = _state.messages.toMutableList()
         var notice: String? = null
         var finalStatus = ChatRequestStatus.COMPLETED
         when (result) {
             is AppResult.Success -> {
                 messages[userIndex] = messages[userIndex].copy(status = MessageStatus.SENT)
-                if (assistantIndex == null) messages.add(ChatBubble(MessageRole.ASSISTANT, result.data))
+                val replyIndex = activeAssistantIndex
+                if (replyIndex != null && replyIndex in messages.indices) {
+                    messages[replyIndex] = messages[replyIndex].copy(text = result.data, status = MessageStatus.SENT)
+                } else if (assistantIndex == null) messages.add(ChatBubble(MessageRole.ASSISTANT, result.data))
                 else messages[assistantIndex] = messages[assistantIndex].copy(text = result.data, status = MessageStatus.SENT)
             }
             is AppResult.Failure -> {
                 if (assistantIndex == null) messages[userIndex] = messages[userIndex].copy(status = if (result.error is AppError.Cancelled) MessageStatus.CANCELLED else MessageStatus.FAILED)
+                activeAssistantIndex?.takeIf { it in messages.indices }?.let { index ->
+                    if (activeAssistantHasDelta) messages[index] = messages[index].copy(
+                        status = if (result.error is AppError.Cancelled) MessageStatus.CANCELLED else MessageStatus.FAILED,
+                    )
+                }
                 notice = result.error.toUserMessage()
                 finalStatus = if (result.error is AppError.Cancelled) ChatRequestStatus.CANCELLED else ChatRequestStatus.FAILED
             }
@@ -206,7 +343,34 @@ class ChatViewModel(
         requestStatusBySession[sessionId] = finalStatus
         setState(_state.copy(messages = messages, isLoading = false, requestStatus = finalStatus, notice = notice))
         persistCurrent(showError = notice == null)
-        activeUserIndex = null; activeAssistantIndex = null; sendJob = null
+        activeUserIndex = null; activeAssistantIndex = null; activeAssistantHasDelta = false; sendJob = null
+    }
+
+    private fun appendAssistantDelta(existingIndex: Int?, delta: String) {
+        val messages = _state.messages.toMutableList()
+        val index = activeAssistantIndex ?: existingIndex?.takeIf { it in messages.indices } ?: messages.size.also {
+            messages.add(ChatBubble(MessageRole.ASSISTANT, delta, MessageStatus.GENERATING))
+        }
+        if (index < messages.size) {
+            val current = messages[index]
+            messages[index] = current.copy(
+                text = if (activeAssistantHasDelta) current.text + delta else delta,
+                status = MessageStatus.GENERATING,
+            )
+        }
+        activeAssistantIndex = index
+        activeAssistantHasDelta = true
+        setState(_state.copy(messages = messages, requestStatus = ChatRequestStatus.RECEIVING_REPLY))
+    }
+
+    private fun setAssistantStreamText(existingIndex: Int?, text: String) {
+        val messages = _state.messages.toMutableList()
+        val index = activeAssistantIndex ?: existingIndex?.takeIf { it in messages.indices } ?: messages.size
+        if (index == messages.size) messages.add(ChatBubble(MessageRole.ASSISTANT, text, MessageStatus.GENERATING))
+        else messages[index] = messages[index].copy(text = text, status = MessageStatus.GENERATING)
+        activeAssistantIndex = index
+        activeAssistantHasDelta = true
+        setState(_state.copy(messages = messages, requestStatus = ChatRequestStatus.RECEIVING_REPLY))
     }
 
     fun cancel() {
@@ -217,28 +381,44 @@ class ChatViewModel(
     private fun stopActiveRequest(showNotice: Boolean) {
         if (!_state.isLoading) return
         val userIndex = activeUserIndex
+        val streamText = synchronized(streamTextLock) { activeStreamText.toString() }
+        if (streamText.isNotEmpty()) setAssistantStreamText(activeAssistantIndex, streamText)
         val assistant = activeAssistantIndex
+        activeRequestStartedAtNanos?.let { startedAt ->
+            activeRequestStartedAtNanos = null
+            val record = UsageRecord(
+                profileId = activeRequestProfileId, providerName = activeRequestProviderName,
+                model = activeRequestModelName, durationMs = ((System.nanoTime() - startedAt) / 1_000_000L).coerceAtLeast(0),
+                errorType = "Cancelled",
+            )
+            usageRepository?.let { repository -> scope.launch { runCatching { repository.append(record) } } }
+        }
         requestGeneration++
         sendJob?.cancel(); sendJob = null
         activeUserIndex = null; activeAssistantIndex = null
         val messages = _state.messages.toMutableList()
         if (assistant == null && userIndex != null && userIndex in messages.indices) messages[userIndex] = messages[userIndex].copy(status = MessageStatus.CANCELLED)
+        if (assistant != null && assistant in messages.indices && activeAssistantHasDelta) {
+            messages[assistant] = messages[assistant].copy(status = MessageStatus.CANCELLED)
+        }
         requestStatusBySession[_state.activeSessionId] = ChatRequestStatus.CANCELLED
         setState(_state.copy(messages = messages, isLoading = false, requestStatus = ChatRequestStatus.CANCELLED, notice = if (showNotice) "已取消请求" else null))
+        activeAssistantHasDelta = false
         syncActiveMessages(messages)
     }
 
     fun clear() {
         if (_state.isLoading) cancel()
-        setState(_state.copy(messages = emptyList(), notice = null))
+        setState(_state.copy(messages = emptyList(), pendingAttachments = emptyList(), notice = null))
         persistAll()
     }
 
     private fun showSession(data: ChatSessionData) = setState(_state.copy(
         activeSessionId = data.session.id, sessionTitle = data.session.title,
-        messages = data.messages.map { ChatBubble(it.role, it.content, if (it.status == MessageStatus.GENERATING) MessageStatus.FAILED else it.status) },
-        sessions = sessionData.map { it.session }, inputText = "", notice = null, isLoading = false,
-        requestStatus = requestStatusBySession[data.session.id] ?: statusForMessages(data.messages.map { ChatBubble(it.role, it.content, if (it.status == MessageStatus.GENERATING) MessageStatus.FAILED else it.status) }),
+        messages = data.messages.map { ChatBubble(it.role, it.content, if (it.status == MessageStatus.GENERATING) MessageStatus.FAILED else it.status, it.attachments) },
+        sessions = sessionData.map { it.session }, inputText = "", pendingAttachments = emptyList(), notice = null, isLoading = false,
+        selectedModelId = data.session.modelProfileId ?: defaultModelProfileId(),
+        requestStatus = requestStatusBySession[data.session.id] ?: statusForMessages(data.messages.map { ChatBubble(it.role, it.content, if (it.status == MessageStatus.GENERATING) MessageStatus.FAILED else it.status, it.attachments) }),
     ))
 
     private fun isCurrentRequest(requestId: Long, sessionId: String): Boolean =
@@ -256,8 +436,8 @@ class ChatViewModel(
             val previous = sessionData[i].messages
             val synchronized = messages.mapIndexed { index, bubble ->
                 val old = previous.getOrNull(index)
-                if (old != null) old.copy(role = bubble.role, content = bubble.text, status = bubble.status)
-                else ChatMessage(sessionId = _state.activeSessionId, role = bubble.role, content = bubble.text, status = bubble.status)
+                if (old != null) old.copy(role = bubble.role, content = bubble.text, status = bubble.status, attachments = bubble.attachments)
+                else ChatMessage(sessionId = _state.activeSessionId, role = bubble.role, content = bubble.text, status = bubble.status, attachments = bubble.attachments)
             }
             sessionData[i] = sessionData[i].copy(messages = synchronized)
         }
@@ -271,7 +451,7 @@ class ChatViewModel(
 
     private fun persistAll() { scope.launch { persistCurrent() } }
     private fun snapshot() = ChatSessionsSnapshot(sessionData.toList(), _state.activeSessionId)
-    private fun defaultSession() = ChatSessionData(ChatSession(title = "新对话"), emptyList())
+    private fun defaultSession() = ChatSessionData(ChatSession(title = "新对话", modelProfileId = defaultModelProfileId()), emptyList())
 
     private fun setState(s: ChatUiState) { _state = s; onStateChanged?.invoke(s) }
 

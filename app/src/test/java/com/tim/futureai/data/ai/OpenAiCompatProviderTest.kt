@@ -44,6 +44,45 @@ class OpenAiCompatProviderTest {
         assertEquals(listOf(AiRequestPhase.REQUESTING, AiRequestPhase.RECEIVING_REPLY), phases.toList())
     }
 
+    @Test fun stream_postsSseRequestAndEmitsDeltasInOrder() = mockResponse(
+        200,
+        "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n" +
+            "data: {\"choices\":[{\"delta\":{\"content\":\" world\"}}]}\n\n" +
+            "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":2}}\n\n" +
+            "data: [DONE]\n\n",
+        contentType = "text/event-stream",
+    ) { server ->
+        val chunks = CopyOnWriteArrayList<String>()
+        val tokenUsage = AtomicReference<com.tim.futureai.domain.ai.AiTokenUsage?>(null)
+        val result = runBlocking {
+            provider(server).streamWithUsage(messages, onDelta = chunks::add, onUsage = tokenUsage::set)
+        }
+        assertEquals("hello world", (result as AppResult.Success).data)
+        assertEquals(listOf("hello", " world"), chunks.toList())
+        assertEquals(8, tokenUsage.get()?.promptTokens)
+        assertEquals(2, tokenUsage.get()?.completionTokens)
+        assertTrue(server.request.get().contains("Accept: text/event-stream"))
+        assertTrue(server.request.get().contains("\"stream\":true"))
+    }
+
+    @Test fun stream_preservesPartialOutputWhenServerEndsEarly() = mockResponse(
+        200,
+        "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n",
+        contentType = "text/event-stream",
+    ) { server ->
+        val chunks = mutableListOf<String>()
+        val result = runBlocking { provider(server).stream(messages, onDelta = chunks::add) }
+        assertEquals(listOf("partial"), chunks)
+        assertEquals(NetworkFailureKind.CONNECTION, ((result as AppResult.Failure).error as AppError.Network).kind)
+    }
+
+    @Test fun testConnectionChecksModelsEndpointWithoutGeneratingCompletion() = mockResponse(200, "{}") { server ->
+        val result = runBlocking { provider(server).testConnection() }
+        assertTrue(result is AppResult.Success)
+        assertTrue(server.request.get().startsWith("GET /models HTTP/1.1"))
+        assertTrue(server.request.get().contains("Authorization: Bearer $apiKey"))
+    }
+
     @Test fun complete_maps401WithoutExposingApiKey() = assertHttpError(401, """{"error":{"message":"invalid key $apiKey"}}""") { error ->
         assertTrue(error is AppError.Auth)
         assertEquals(401, (error as AppError.Auth).httpCode)
@@ -153,13 +192,13 @@ class OpenAiCompatProviderTest {
 
     private fun provider(server: MockServer) = provider(server.url)
 
-    private fun mockResponse(code: Int, body: String, block: (MockServer) -> Unit) {
+    private fun mockResponse(code: Int, body: String, contentType: String = "application/json", block: (MockServer) -> Unit) {
         val server = MockServer { socket, request ->
             request.set(readRequest(socket))
             val bytes = body.toByteArray(StandardCharsets.UTF_8)
             val reason = if (code == 200) "OK" else "Mock Error"
             socket.getOutputStream().apply {
-                write("HTTP/1.1 $code $reason\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray(StandardCharsets.UTF_8))
+                write("HTTP/1.1 $code $reason\r\nContent-Type: $contentType\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray(StandardCharsets.UTF_8))
                 write(bytes)
                 flush()
             }

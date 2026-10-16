@@ -3,6 +3,7 @@ package com.tim.futureai.data.chat
 import com.tim.futureai.domain.chat.ChatSessionData
 import com.tim.futureai.domain.chat.ChatSessionsSnapshot
 import com.tim.futureai.domain.model.ChatMessage
+import com.tim.futureai.domain.model.ChatAttachment
 import com.tim.futureai.domain.model.ChatSession
 import com.tim.futureai.domain.model.MessageRole
 import kotlinx.coroutines.runBlocking
@@ -16,17 +17,22 @@ class FileChatSessionsRepositoryTest {
         val dir = Files.createTempDirectory("sessions").toFile()
         try {
             val repo = FileChatSessionsRepository(File(dir, "sessions.json"), File(dir, "legacy.json"))
-            val first = ChatSession(id = "s1", title = "第一段")
+            val first = ChatSession(id = "s1", title = "第一段", modelProfileId = "provider-a")
             val second = ChatSession(id = "s2", title = "第二段", isPinned = true)
             val snapshot = ChatSessionsSnapshot(listOf(
-                ChatSessionData(first, listOf(ChatMessage(sessionId = "s1", role = MessageRole.USER, content = "甲"))),
+                ChatSessionData(first, listOf(ChatMessage(
+                    sessionId = "s1", role = MessageRole.USER, content = "甲",
+                    attachments = listOf(ChatAttachment(name = "a.txt", mimeType = "text/plain", textContent = "附件正文")),
+                ))),
                 ChatSessionData(second, listOf(ChatMessage(sessionId = "s2", role = MessageRole.USER, content = "乙"))),
             ), "s2")
             assertTrue(repo.save(snapshot))
             val restored = repo.load().snapshot
             assertEquals(snapshot, restored)
             assertEquals("s2", restored.activeSessionId)
+            assertEquals("provider-a", restored.sessions[0].session.modelProfileId)
             assertEquals(listOf("甲"), restored.sessions[0].messages.map { it.content })
+            assertEquals("附件正文", restored.sessions[0].messages.single().attachments.single().textContent)
             assertEquals(listOf("乙"), restored.sessions[1].messages.map { it.content })
         } finally { dir.deleteRecursively() }
     }

@@ -7,6 +7,7 @@ import com.tim.futureai.domain.chat.ChatSessionsLoad
 import com.tim.futureai.domain.chat.ChatSessionsRepository
 import com.tim.futureai.domain.chat.ChatSessionsSnapshot
 import com.tim.futureai.domain.model.ChatMessage
+import com.tim.futureai.domain.model.ChatAttachment
 import com.tim.futureai.domain.model.ChatSession
 import com.tim.futureai.domain.model.MessageRole
 import com.tim.futureai.domain.model.MessageStatus
@@ -38,6 +39,7 @@ class FileChatSessionsRepository(private val file: File, private val legacyFile:
                     createdAt = Instant.parse(fields.string("createdAt")),
                     updatedAt = Instant.parse(fields.string("updatedAt")),
                     isPinned = fields["isPinned"]?.let { (it as? JsonValue.JBool)?.value ?: error("Invalid pin state") } ?: false,
+                    modelProfileId = fields["modelProfileId"]?.asString(),
                 )
                 ChatSessionData(session, decodeMessages(fields))
             } ?: error("Missing sessions")
@@ -60,6 +62,7 @@ class FileChatSessionsRepository(private val file: File, private val legacyFile:
                     "\"id\":" + JsonMini.quote(s.id), "\"title\":" + JsonMini.quote(s.title),
                     "\"createdAt\":" + JsonMini.quote(s.createdAt.toString()), "\"updatedAt\":" + JsonMini.quote(s.updatedAt.toString()),
                     "\"isPinned\":" + s.isPinned,
+                    "\"modelProfileId\":" + (s.modelProfileId?.let(JsonMini::quote) ?: "null"),
                     "\"messages\":" + encodeMessages(data.messages),
                 ).joinToString(",") + "}"
             }
@@ -84,6 +87,16 @@ class FileChatSessionsRepository(private val file: File, private val legacyFile:
                 id = m.string("id"), sessionId = m.string("sessionId"), role = MessageRole.valueOf(m.string("role")),
                 content = m.string("content"), createdAt = Instant.parse(m.string("createdAt")),
                 status = m["status"]?.asString()?.let(MessageStatus::valueOf) ?: MessageStatus.SENT,
+                attachments = m["attachments"]?.asArray()?.items.orEmpty().map { item ->
+                    val a = item.asObject()?.entries ?: error("Invalid attachment")
+                    ChatAttachment(
+                        id = a["id"]?.asString().orEmpty().ifBlank { java.util.UUID.randomUUID().toString() },
+                        name = a.string("name"), mimeType = a.string("mimeType"),
+                        localPath = a["localPath"]?.asString().orEmpty(),
+                        previewPath = a["previewPath"]?.asString().orEmpty(),
+                        textContent = a["textContent"]?.asString().orEmpty(),
+                    )
+                },
             )
         }
 
@@ -92,6 +105,13 @@ class FileChatSessionsRepository(private val file: File, private val legacyFile:
             "\"id\":" + JsonMini.quote(m.id), "\"sessionId\":" + JsonMini.quote(m.sessionId),
             "\"role\":" + JsonMini.quote(m.role.name), "\"content\":" + JsonMini.quote(m.content),
             "\"createdAt\":" + JsonMini.quote(m.createdAt.toString()), "\"status\":" + JsonMini.quote(m.status.name),
+            "\"attachments\":" + m.attachments.joinToString(",", prefix = "[", postfix = "]") { a ->
+                "{" + listOf(
+                    "\"id\":" + JsonMini.quote(a.id), "\"name\":" + JsonMini.quote(a.name),
+                    "\"mimeType\":" + JsonMini.quote(a.mimeType), "\"localPath\":" + JsonMini.quote(a.localPath),
+                    "\"previewPath\":" + JsonMini.quote(a.previewPath), "\"textContent\":" + JsonMini.quote(a.textContent),
+                ).joinToString(",") + "}"
+            },
         ).joinToString(",") + "}"
     }
 

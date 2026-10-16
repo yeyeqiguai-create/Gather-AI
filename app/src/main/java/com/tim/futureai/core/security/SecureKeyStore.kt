@@ -18,6 +18,7 @@ interface SecureValueStore {
     fun putString(key: String, plainText: String): Boolean
     fun getString(key: String): String?
     fun contains(key: String): Boolean
+    fun remove(key: String): Boolean = false
 }
 
 class SecureKeyStore(private val context: Context) : SecureValueStore {
@@ -62,8 +63,13 @@ class SecureKeyStore(private val context: Context) : SecureValueStore {
     }
 
     /** 删除指定条目。 */
-    fun remove(key: String) {
+    override fun remove(key: String): Boolean {
+        return try {
         prefs.edit().remove("$key.iv").remove("$key.data").apply()
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun getOrCreateKey(): SecretKey {

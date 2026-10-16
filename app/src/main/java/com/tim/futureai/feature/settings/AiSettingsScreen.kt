@@ -23,12 +23,14 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,6 +54,7 @@ import com.tim.futureai.ui.theme.FuturePalette
 import com.tim.futureai.ui.theme.glassPanel
 import com.tim.futureai.feature.update.UpdateCheckResult
 import com.tim.futureai.feature.update.UpdateSection
+import com.tim.futureai.domain.usage.UsageSnapshot
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -71,6 +74,12 @@ fun AiSettingsScreen(
     onDownloadUpdate: () -> Unit = {},
     onCancelDownload: () -> Unit = {},
     onInstallUpdate: () -> Unit = {},
+    profiles: List<AiSettings> = emptyList(),
+    onSelectProfile: (String) -> Unit = {},
+    onCreateProfile: () -> Unit = {},
+    onDeleteProfile: (String) -> Unit = {},
+    onTestConnection: () -> Unit = {},
+    usage: UsageSnapshot = UsageSnapshot(),
 ) {
     var showApiKey by remember { mutableStateOf(false) }
     FutureBackdrop(modifier) {
@@ -110,10 +119,45 @@ fun AiSettingsScreen(
             ) {
                 IntroPanel()
                 Column(
+                    modifier = Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(22.dp)).padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("服务商与模型", color = FuturePalette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        TextButton(onClick = onCreateProfile) { Text("＋ 新增", color = FuturePalette.VioletBright) }
+                    }
+                    profiles.forEach { profile ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                                .background(if (profile.id == settings.id) Color(0x338B73EA) else Color(0x22101421))
+                                .clickable { onSelectProfile(profile.id) }.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(profile.name, color = FuturePalette.Text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                Text("${profile.baseUrl} · ${profile.model}", color = FuturePalette.Muted, fontSize = 9.sp, maxLines = 1)
+                            }
+                            if (profile.id == settings.id) Text("编辑中", color = FuturePalette.Cyan, fontSize = 10.sp)
+                            else TextButton(onClick = { onSelectProfile(profile.id) }) { Text("编辑", color = FuturePalette.VioletBright) }
+                            TextButton(onClick = { onDeleteProfile(profile.id) }) { Text("删除", color = FuturePalette.Danger) }
+                        }
+                    }
+                    Text("每个会话可单独选择已保存的模型；密钥仍由 Android Keystore 加密保存。", color = FuturePalette.Muted, fontSize = 10.sp)
+                }
+                Column(
                     modifier = Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(26.dp)).padding(18.dp),
                     verticalArrangement = Arrangement.spacedBy(15.dp),
                 ) {
                     Text("连接信息", color = FuturePalette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    SettingFieldLabel("配置名称", "用于区分服务商")
+                    OutlinedTextField(
+                        value = settings.name,
+                        onValueChange = { onSettingsChanged(settings.copy(name = it)) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp),
+                        colors = fieldColors(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                     SettingFieldLabel("API Base URL", "OpenAI-compatible 接口地址")
                     OutlinedTextField(
                         value = settings.baseUrl,
@@ -136,6 +180,30 @@ fun AiSettingsScreen(
                         colors = fieldColors(),
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("模型支持图片输入", color = FuturePalette.Text, fontSize = 12.sp)
+                            Text("仅对明确支持视觉输入的模型开启", color = FuturePalette.Muted, fontSize = 10.sp)
+                        }
+                        Checkbox(checked = settings.supportsImages, onCheckedChange = { onSettingsChanged(settings.copy(supportsImages = it)) })
+                    }
+                    Text("可选单价（USD / 每百万 Token，用于本地费用估算）", color = FuturePalette.Muted, fontSize = 10.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = settings.inputUsdPerMillion,
+                            onValueChange = { onSettingsChanged(settings.copy(inputUsdPerMillion = it)) },
+                            label = { Text("输入") }, placeholder = { Text("例如 0.15") }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), shape = RoundedCornerShape(14.dp),
+                            colors = fieldColors(), modifier = Modifier.weight(1f),
+                        )
+                        OutlinedTextField(
+                            value = settings.outputUsdPerMillion,
+                            onValueChange = { onSettingsChanged(settings.copy(outputUsdPerMillion = it)) },
+                            label = { Text("输出") }, placeholder = { Text("例如 0.60") }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), shape = RoundedCornerShape(14.dp),
+                            colors = fieldColors(), modifier = Modifier.weight(1f),
+                        )
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         SettingFieldLabel("API Key", "仅保存在本机安全存储中", Modifier.weight(1f))
                         if (settings.hasSavedApiKey && settings.apiKey.isBlank()) {
@@ -195,7 +263,11 @@ fun AiSettingsScreen(
                             }
                         }
                     }
+                    TextButton(onClick = onTestConnection, modifier = Modifier.fillMaxWidth()) {
+                        Text("测试连接（不消耗生成 Token）", color = FuturePalette.Cyan)
+                    }
                 }
+                UsageCard(usage, profiles)
                 UpdateSection(
                     result = updateResult,
                     checking = updateChecking,
@@ -216,6 +288,35 @@ fun AiSettingsScreen(
                 }
                 Spacer(Modifier.height(8.dp))
             }
+        }
+    }
+}
+
+@Composable
+private fun UsageCard(usage: UsageSnapshot, profiles: List<AiSettings>) {
+    val inputRates = profiles.associate { it.id to it.inputUsdPerMillion.toDoubleOrNull() }
+    val outputRates = profiles.associate { it.id to it.outputUsdPerMillion.toDoubleOrNull() }
+    val estimated = usage.estimatedUsd(inputRates, outputRates)
+    Column(
+        Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(22.dp)).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        Text("用量统计", color = FuturePalette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        Text("请求 ${usage.requestCount} 次 · 错误 ${usage.errorCount} 次 · Token 未知 ${usage.unknownTokenCount} 次", color = FuturePalette.Muted, fontSize = 11.sp)
+        Text("已确认 Token：输入 ${usage.promptTokens} · 输出 ${usage.completionTokens}", color = FuturePalette.Muted, fontSize = 11.sp)
+        Text("请求耗时合计：${usage.totalDurationMs} ms", color = FuturePalette.Muted, fontSize = 11.sp)
+        Text(
+            estimated?.let { "费用估算（USD）：~${"%.6f".format(it)}" }
+                ?: "费用估算：未知（缺少完整 Token 用量或未配置单价）",
+            color = FuturePalette.Cyan, fontSize = 11.sp,
+        )
+        usage.records.takeLast(5).asReversed().forEach { record ->
+            Text(
+                "${record.providerName} · ${record.model} · ${record.durationMs} ms" +
+                    (record.errorType?.let { " · $it" } ?: "") +
+                    (record.tokenUsage?.let { " · ${it.promptTokens}+${it.completionTokens} tokens" } ?: " · Token 未知"),
+                color = FuturePalette.Muted, fontSize = 9.sp, maxLines = 1,
+            )
         }
     }
 }

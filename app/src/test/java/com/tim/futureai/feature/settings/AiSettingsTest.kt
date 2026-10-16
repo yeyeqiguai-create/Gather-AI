@@ -15,6 +15,7 @@ class AiSettingsTest {
         }
         override fun getString(key: String): String? = values[key]
         override fun contains(key: String): Boolean = values.containsKey(key)
+        override fun remove(key: String): Boolean { values.remove(key); return true }
     }
 
     @Test fun validate_requiresBaseUrl() {
@@ -57,7 +58,7 @@ class AiSettingsTest {
 
         val reopened = manager.load()
         assertEquals(SettingsSaveResult.Saved, manager.save(reopened.copy(model = "model-y")))
-        assertEquals("mock-key", store.getString("api_key"))
+        assertEquals("mock-key", manager.configFor("default")?.apiKey)
         assertEquals("model-y", manager.load().model)
     }
 
@@ -65,6 +66,39 @@ class AiSettingsTest {
         val store = FakeSecureStore()
         val result = AiSettingsManager(store).save(AiSettings("bad-url", "model", "mock-key"))
         assertTrue(result is SettingsSaveResult.Invalid)
-        assertEquals(null, store.getString("api_key"))
+        assertEquals(null, store.getString("ai_provider_profiles_v1"))
+    }
+
+    @Test fun profiles_areEncryptedTogetherAndCanBeSelectedOrDeleted() {
+        val store = FakeSecureStore()
+        val manager = AiSettingsManager(store)
+        assertEquals(SettingsSaveResult.Saved, manager.save(AiSettings(
+            baseUrl = "https://one.example/v1", model = "model-one", apiKey = "secret-one", id = "one", name = "One",
+        )))
+        assertEquals(SettingsSaveResult.Saved, manager.save(AiSettings(
+            baseUrl = "https://two.example/v1", model = "model-two", apiKey = "secret-two", id = "two", name = "Two",
+        )))
+
+        assertEquals(listOf("one", "two"), manager.profiles().map { it.id })
+        assertTrue(manager.profiles().all { it.apiKey.isBlank() && it.hasSavedApiKey })
+        assertEquals("secret-one", manager.configFor("one")?.apiKey)
+        assertTrue(manager.selectProfile("one"))
+        assertEquals("one", manager.load().id)
+        assertTrue(manager.deleteProfile("one"))
+        assertEquals("two", manager.load().id)
+        assertNull(manager.configFor("one"))
+    }
+
+    @Test fun loadMigratesLegacyConfigurationOnSaveWithoutDroppingKey() {
+        val store = FakeSecureStore()
+        store.putString("base_url", "https://legacy.example/v1")
+        store.putString("model", "legacy-model")
+        store.putString("api_key", "legacy-secret")
+        val manager = AiSettingsManager(store)
+        val legacy = manager.load()
+        assertEquals("legacy", legacy.id)
+        assertEquals(SettingsSaveResult.Saved, manager.save(legacy.copy(model = "updated-model")))
+        assertEquals("legacy-secret", manager.configFor("legacy")?.apiKey)
+        assertNull(store.getString("api_key"))
     }
 }
