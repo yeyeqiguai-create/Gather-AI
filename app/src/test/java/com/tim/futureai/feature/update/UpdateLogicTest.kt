@@ -106,6 +106,28 @@ class UpdateLogicTest {
         assertEquals(null, UpdatePromptReducer.reduce(prompt, UpdatePromptAction.START_UPDATE))
     }
 
+    @Test fun installerAuthorizationAndResumeFollowAndroidApiLevel() {
+        assertTrue(UpdateInstallFlow.requiresPerSourceAuthorization(26, false))
+        assertTrue(UpdateInstallFlow.requiresPerSourceAuthorization(37, false))
+        assertFalse(UpdateInstallFlow.requiresPerSourceAuthorization(25, false))
+        assertFalse(UpdateInstallFlow.requiresPerSourceAuthorization(37, true))
+        assertTrue(UpdateInstallFlow.shouldResumeAfterAuthorization(true, 26, true))
+        assertFalse(UpdateInstallFlow.shouldResumeAfterAuthorization(true, 26, false))
+        assertTrue(UpdateInstallFlow.shouldResumeAfterAuthorization(true, 25, false))
+        assertFalse(UpdateInstallFlow.shouldResumeAfterAuthorization(false, 37, true))
+    }
+
+    @Test fun installerResultAndRestartConfirmTheTargetVersion() {
+        assertTrue(UpdateInstallFlow.installerReportedSuccess(-1, 12, 12))
+        assertTrue(UpdateInstallFlow.installerReportedSuccess(-1, 13, 12))
+        assertFalse(UpdateInstallFlow.installerReportedSuccess(0, 12, 12))
+        assertFalse(UpdateInstallFlow.installerReportedSuccess(-1, 11, 12))
+        assertTrue(UpdateInstallFlow.completedDuringProcessRestart(12, 12, 11, 100L, 100L))
+        assertTrue(UpdateInstallFlow.completedDuringProcessRestart(12, 12, 12, 100L, 101L))
+        assertFalse(UpdateInstallFlow.completedDuringProcessRestart(12, 12, 12, 100L, 100L))
+        assertFalse(UpdateInstallFlow.completedDuringProcessRestart(11, 12, 10, 100L, 101L))
+    }
+
     @Test fun networkFailureCanBeRetriedImmediately() {
         val calls = AtomicInteger()
         val repository = com.tim.futureai.data.update.GitHubUpdateRepository(

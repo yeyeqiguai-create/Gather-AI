@@ -1,6 +1,8 @@
 package com.tim.futureai
 
 import android.content.Intent
+import android.content.ClipData
+import android.content.ActivityNotFoundException
 import android.os.Bundle
 import android.os.Build
 import android.net.Uri
@@ -50,6 +52,7 @@ import com.tim.futureai.feature.update.UpdatePromptAction
 import com.tim.futureai.feature.update.UpdatePromptReducer
 import com.tim.futureai.feature.update.UpdatePromptState
 import com.tim.futureai.feature.update.UpdateRelease
+import com.tim.futureai.feature.update.UpdateInstallFlow
 import com.tim.futureai.feature.update.StartupUpdateCheck
 import com.tim.futureai.domain.ai.AiChatConfig
 import com.tim.futureai.feature.chat.ChatScreen
@@ -87,7 +90,28 @@ private val FutureColors = darkColorScheme(
     onErrorContainer = FuturePalette.Text,
 )
 
+private const val UPDATE_INSTALL_PREFS = "update_install_flow"
+private const val KEY_UPDATE_APK_PATH = "apk_path"
+private const val KEY_UPDATE_APK_SHA256 = "apk_sha256"
+private const val KEY_UPDATE_VERSION_NAME = "version_name"
+private const val KEY_UPDATE_VERSION_CODE = "version_code"
+private const val KEY_UPDATE_PHASE = "phase"
+private const val KEY_UPDATE_PREVIOUS_CODE = "previous_version_code"
+private const val KEY_UPDATE_PREVIOUS_TIME = "previous_last_update_time"
+private const val INSTALL_PHASE_NONE = 0
+private const val INSTALL_PHASE_AUTHORIZATION = 1
+private const val INSTALL_PHASE_SYSTEM_UI = 2
+
 class MainActivity : ComponentActivity() {
+    private fun createUpdateRepository(): GitHubUpdateRepository {
+        val appInfo = packageManager.getPackageInfo(packageName, 0)
+        return GitHubUpdateRepository(
+            currentVersionName = appInfo.versionName.orEmpty(),
+            currentVersionCode = if (Build.VERSION.SDK_INT >= 28) appInfo.longVersionCode.toInt() else appInfo.versionCode,
+            isInternalBuild = applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0,
+        )
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
@@ -117,13 +141,6 @@ class MainActivity : ComponentActivity() {
             usageRepository = usageRepository,
         )
         viewModel.setModelChoices(settingsManager.profiles())
-        val appInfo = packageManager.getPackageInfo(packageName, 0)
-        val updateRepository = GitHubUpdateRepository(
-            currentVersionName = appInfo.versionName.orEmpty(),
-            currentVersionCode = if (Build.VERSION.SDK_INT >= 28) appInfo.longVersionCode.toInt() else appInfo.versionCode,
-            isInternalBuild = applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0,
-        )
-
         setContent {
             MaterialTheme(colorScheme = FutureColors) {
                 val initialSettings = remember { settingsManager.load() }
@@ -138,8 +155,23 @@ class MainActivity : ComponentActivity() {
                 var updateResult by remember { mutableStateOf<UpdateCheckResult?>(null) }
                 var updateChecking by remember { mutableStateOf(false) }
                 var updateMessage by remember { mutableStateOf<String?>(null) }
-                var downloadProgress by remember { mutableStateOf<Int?>(null) }
-                var downloadedApk by remember { mutableStateOf<File?>(null) }
+                var updateRepository by remember { mutableStateOf(createUpdateRepository()) }
+                val installPrefs = remember { getSharedPreferences(UPDATE_INSTALL_PREFS, MODE_PRIVATE) }
+                var downloadedApkPath by remember { mutableStateOf(installPrefs.getString(KEY_UPDATE_APK_PATH, null)) }
+                var downloadedApkSha256 by remember { mutableStateOf(installPrefs.getString(KEY_UPDATE_APK_SHA256, null)) }
+                var downloadedVersionName by remember { mutableStateOf(installPrefs.getString(KEY_UPDATE_VERSION_NAME, null)) }
+                var downloadedVersionCode by remember { mutableStateOf(installPrefs.getInt(KEY_UPDATE_VERSION_CODE, 0)) }
+                var installPhase by remember { mutableStateOf(installPrefs.getInt(KEY_UPDATE_PHASE, INSTALL_PHASE_NONE)) }
+                var previousVersionCode by remember { mutableStateOf(installPrefs.getInt(KEY_UPDATE_PREVIOUS_CODE, 0)) }
+                var previousLastUpdateTime by remember { mutableStateOf(installPrefs.getLong(KEY_UPDATE_PREVIOUS_TIME, 0L)) }
+                var installAuthorizationRequired by remember {
+                    mutableStateOf(Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls())
+                }
+                var legacySecurityHelp by remember { mutableStateOf(false) }
+                val downloadedApk = downloadedApkPath?.let(::File)?.takeIf { it.isFile }
+                var downloadProgress by remember {
+                    mutableStateOf<Int?>(if (downloadedApk != null && !downloadedApkSha256.isNullOrBlank()) 100 else null)
+                }
                 var downloadJob by remember { mutableStateOf<Job?>(null) }
                 var updatePrompt by remember { mutableStateOf<UpdatePromptState?>(null) }
                 val updateCheckGate = remember { UpdateCheckGate() }
@@ -200,20 +232,219 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
-                LaunchedEffect(Unit) { if (startupUpdateCheck.shouldCheck()) checkForUpdates() }
-                val installDownloadedApk: () -> Unit = {
-                    val apk = downloadedApk
-                    if (apk != null && Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
-                        startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
-                        updateMessage = "请允许 Gather AI 安装未知应用，返回后再次点击安装"
+                fun readInstalledVersionCode(): Int {
+                    val info = packageManager.getPackageInfo(packageName, 0)
+                    return if (Build.VERSION.SDK_INT >= 28) info.longVersionCode.toInt() else info.versionCode
+                }
+                fun readInstalledLastUpdateTime(): Long = packageManager.getPackageInfo(packageName, 0).lastUpdateTime
+                fun currentDownloadedApk(): File? = installPrefs.getString(KEY_UPDATE_APK_PATH, null)
+                    ?.let(::File)?.takeIf { it.isFile }
+                fun currentDownloadedSha256(): String? = installPrefs.getString(KEY_UPDATE_APK_SHA256, null)
+                fun clearPendingInstallPhase() {
+                    installPhase = INSTALL_PHASE_NONE
+                    installPrefs.edit()
+                        .putInt(KEY_UPDATE_PHASE, INSTALL_PHASE_NONE)
+                        .remove(KEY_UPDATE_PREVIOUS_CODE)
+                        .remove(KEY_UPDATE_PREVIOUS_TIME)
+                        .commit()
+                }
+                fun clearDownloadedApk(deleteFile: Boolean) {
+                    if (deleteFile) currentDownloadedApk()?.delete()
+                    downloadedApkPath = null
+                    downloadedApkSha256 = null
+                    downloadedVersionName = null
+                    downloadedVersionCode = 0
+                    downloadProgress = null
+                    installPrefs.edit()
+                        .remove(KEY_UPDATE_APK_PATH)
+                        .remove(KEY_UPDATE_APK_SHA256)
+                        .remove(KEY_UPDATE_VERSION_NAME)
+                        .remove(KEY_UPDATE_VERSION_CODE)
+                        .apply()
+                }
+                val installerResultLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.StartActivityForResult(),
+                ) { result ->
+                    val installedCode = runCatching { readInstalledVersionCode() }.getOrDefault(0)
+                    val installedTime = runCatching { readInstalledLastUpdateTime() }.getOrDefault(0L)
+                    val targetCode = installPrefs.getInt(KEY_UPDATE_VERSION_CODE, downloadedVersionCode)
+                    val installSucceeded = UpdateInstallFlow.installerReportedSuccess(result.resultCode, installedCode, targetCode) ||
+                        UpdateInstallFlow.completedDuringProcessRestart(
+                            installedCode, targetCode, previousVersionCode, previousLastUpdateTime, installedTime,
+                        )
+                    if (installSucceeded) {
+                        val installedName = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull()
+                        val targetName = installPrefs.getString(KEY_UPDATE_VERSION_NAME, downloadedVersionName).orEmpty()
+                        clearPendingInstallPhase()
+                        clearDownloadedApk(deleteFile = true)
+                        legacySecurityHelp = false
+                        installAuthorizationRequired = false
                         showSettings = true
-                    } else if (apk != null) runCatching {
-                        val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.fileprovider", apk)
-                        startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
-                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
-                    }.onFailure { updateMessage = "无法启动系统安装器，请重试" }
+                        updateMessage = "系统已完成安装（${installedName ?: targetName}），正在核对版本…"
+                        updateRepository = createUpdateRepository()
+                        checkForUpdates()
+                    } else {
+                        clearPendingInstallPhase()
+                        if (Build.VERSION.SDK_INT < 26) legacySecurityHelp = true
+                        updateMessage = if (Build.VERSION.SDK_INT < 26) {
+                            "系统安装未完成。Android 7.1 及以下可能需要在安全设置允许未知来源；返回后会自动继续。"
+                        } else {
+                            "系统安装未完成或已取消；已保留已校验 APK，可立即重试。"
+                        }
+                    }
+                }
+                fun launchVerifiedInstaller() {
+                    val apk = currentDownloadedApk()
+                    val expectedSha256 = currentDownloadedSha256()
+                    if (apk == null || expectedSha256.isNullOrBlank()) {
+                        clearPendingInstallPhase()
+                        updateMessage = "已校验的 APK 不可用，请重新下载"
+                        downloadProgress = null
+                        return
+                    }
+                    composeScope.launch {
+                        if (!updateRepository.isVerifiedApk(this@MainActivity, apk, expectedSha256)) {
+                            clearPendingInstallPhase()
+                            clearDownloadedApk(deleteFile = true)
+                            updateMessage = "APK 校验失败，已阻止安装；请重新下载"
+                            return@launch
+                        }
+                        try {
+                            val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.fileprovider", apk)
+                            @Suppress("DEPRECATION")
+                            val installIntent = Intent(Intent.ACTION_INSTALL_PACKAGE)
+                                .setDataAndType(uri, "application/vnd.android.package-archive")
+                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                .putExtra(Intent.EXTRA_RETURN_RESULT, true)
+                            installIntent.clipData = ClipData.newRawUri("Gather AI update", uri)
+                            installPhase = INSTALL_PHASE_SYSTEM_UI
+                            installPrefs.edit().putInt(KEY_UPDATE_PHASE, INSTALL_PHASE_SYSTEM_UI).commit()
+                            try {
+                                installerResultLauncher.launch(installIntent)
+                            } catch (_: ActivityNotFoundException) {
+                                @Suppress("DEPRECATION")
+                                val fallback = Intent(Intent.ACTION_VIEW)
+                                    .setDataAndType(uri, "application/vnd.android.package-archive")
+                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    .putExtra(Intent.EXTRA_RETURN_RESULT, true)
+                                fallback.clipData = ClipData.newRawUri("Gather AI update", uri)
+                                installerResultLauncher.launch(fallback)
+                            }
+                        } catch (error: Exception) {
+                            clearPendingInstallPhase()
+                            updateMessage = error.message?.let { "无法打开系统安装器：$it" } ?: "无法打开系统安装器，请重试"
+                        }
+                    }
+                }
+                val authorizationSettingsLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.StartActivityForResult(),
+                ) {
+                    val authorized = Build.VERSION.SDK_INT < 26 || packageManager.canRequestPackageInstalls()
+                    installAuthorizationRequired = !authorized && Build.VERSION.SDK_INT >= 26
+                    if (UpdateInstallFlow.shouldResumeAfterAuthorization(
+                            installPhase == INSTALL_PHASE_AUTHORIZATION,
+                            Build.VERSION.SDK_INT,
+                            authorized,
+                        )
+                    ) {
+                        updateMessage = "授权已开启，正在打开系统安装确认…"
+                        launchVerifiedInstaller()
+                    } else {
+                        showSettings = true
+                        updateMessage = "尚未授权安装未知应用；授权后返回会自动继续安装。"
+                    }
+                }
+                fun requestAuthorizationSettings() {
+                    installPhase = INSTALL_PHASE_AUTHORIZATION
+                    installPrefs.edit().putInt(KEY_UPDATE_PHASE, INSTALL_PHASE_AUTHORIZATION).commit()
+                    showSettings = true
+                    updateMessage = if (Build.VERSION.SDK_INT >= 26) {
+                        "请在系统页面允许 Gather AI 安装未知应用；返回后将自动打开安装确认。"
+                    } else {
+                        "请在系统安全设置允许未知来源安装；返回后将自动继续。"
+                    }
+                    val primary = if (Build.VERSION.SDK_INT >= 26) {
+                        Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))
+                    } else {
+                        Intent(Settings.ACTION_SECURITY_SETTINGS)
+                    }
+                    try {
+                        authorizationSettingsLauncher.launch(primary)
+                    } catch (_: ActivityNotFoundException) {
+                        val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+                        runCatching { authorizationSettingsLauncher.launch(fallback) }
+                            .onFailure { updateMessage = "无法打开系统授权设置；请从系统设置手动允许 Gather AI 安装未知应用。" }
+                    }
+                }
+                val installDownloadedApk: () -> Unit = {
+                    if (currentDownloadedApk() == null || currentDownloadedSha256().isNullOrBlank()) {
+                        updateMessage = "已校验的 APK 不可用，请重新下载"
+                        downloadProgress = null
+                    } else {
+                        previousVersionCode = readInstalledVersionCode()
+                        previousLastUpdateTime = readInstalledLastUpdateTime()
+                        installPrefs.edit()
+                            .putInt(KEY_UPDATE_PREVIOUS_CODE, previousVersionCode)
+                            .putLong(KEY_UPDATE_PREVIOUS_TIME, previousLastUpdateTime)
+                            .commit()
+                        val needsPermission = UpdateInstallFlow.requiresPerSourceAuthorization(
+                            Build.VERSION.SDK_INT,
+                            Build.VERSION.SDK_INT < 26 || packageManager.canRequestPackageInstalls(),
+                        )
+                        when {
+                            needsPermission -> {
+                                installAuthorizationRequired = true
+                                requestAuthorizationSettings()
+                            }
+                            Build.VERSION.SDK_INT < 26 && legacySecurityHelp -> requestAuthorizationSettings()
+                            else -> launchVerifiedInstaller()
+                        }
+                    }
+                }
+                LaunchedEffect(Unit) {
+                    if (installPhase == INSTALL_PHASE_NONE && startupUpdateCheck.shouldCheck()) checkForUpdates()
+                    when (installPhase) {
+                        INSTALL_PHASE_AUTHORIZATION -> {
+                            showSettings = true
+                            val authorized = Build.VERSION.SDK_INT < 26 || packageManager.canRequestPackageInstalls()
+                            installAuthorizationRequired = Build.VERSION.SDK_INT >= 26 && !authorized
+                            if (UpdateInstallFlow.shouldResumeAfterAuthorization(true, Build.VERSION.SDK_INT, authorized)) {
+                                launchVerifiedInstaller()
+                            } else {
+                                updateMessage = "请允许 Gather AI 安装未知应用；授权后可返回自动继续。"
+                            }
+                        }
+                        INSTALL_PHASE_SYSTEM_UI -> {
+                            val installedCode = runCatching { readInstalledVersionCode() }.getOrDefault(0)
+                            val installedTime = runCatching { readInstalledLastUpdateTime() }.getOrDefault(0L)
+                            if (UpdateInstallFlow.completedDuringProcessRestart(
+                                    installedCode, downloadedVersionCode, previousVersionCode, previousLastUpdateTime, installedTime,
+                                )
+                            ) {
+                                val installedName = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull()
+                                clearPendingInstallPhase()
+                                clearDownloadedApk(deleteFile = true)
+                                showSettings = true
+                                updateMessage = "已确认升级到 ${installedName ?: downloadedVersionName.orEmpty()}；正在自动检查更新。"
+                                updateRepository = createUpdateRepository()
+                                checkForUpdates()
+                            } else {
+                                clearPendingInstallPhase()
+                                showSettings = true
+                                updateMessage = "系统安装未完成或已取消；已保留已校验 APK，可立即重试。"
+                                checkForUpdates()
+                            }
+                        }
+                    }
                 }
                 fun startUpdateDownload(release: UpdateRelease, installWhenReady: Boolean) {
+                    val asset = release.apk
+                    if (asset == null) {
+                        updateMessage = "Release 没有可下载的 APK"
+                        return
+                    }
+                    clearPendingInstallPhase()
+                    clearDownloadedApk(deleteFile = false)
                     if (installWhenReady) {
                         settings = settingsManager.load()
                         profiles = settingsManager.profiles()
@@ -225,17 +456,27 @@ class MainActivity : ComponentActivity() {
                     updateMessage = "正在下载并校验 APK…"
                     downloadJob = composeScope.launch {
                         try {
-                            downloadedApk = updateRepository.downloadAndVerify(this@MainActivity, release) { progress ->
+                            val verifiedApk = updateRepository.downloadAndVerify(this@MainActivity, release) { progress ->
                                 composeScope.launch { downloadProgress = progress }
                             }
+                            downloadedApkPath = verifiedApk.absolutePath
+                            downloadedApkSha256 = asset.sha256
+                            downloadedVersionName = release.versionName
+                            downloadedVersionCode = release.versionCode
+                            installPrefs.edit()
+                                .putString(KEY_UPDATE_APK_PATH, downloadedApkPath)
+                                .putString(KEY_UPDATE_APK_SHA256, downloadedApkSha256)
+                                .putString(KEY_UPDATE_VERSION_NAME, downloadedVersionName)
+                                .putInt(KEY_UPDATE_VERSION_CODE, downloadedVersionCode)
+                                .commit()
                             downloadProgress = 100
                             updateMessage = "SHA-256 与签名校验通过"
                             if (installWhenReady) installDownloadedApk()
                         } catch (_: CancellationException) {
-                            downloadProgress = null
+                            clearDownloadedApk(deleteFile = false)
                             updateMessage = "下载已取消"
                         } catch (error: Exception) {
-                            downloadProgress = null
+                            clearDownloadedApk(deleteFile = false)
                             updateMessage = error.message ?: "APK 下载或校验失败，可立即重试"
                             if (installWhenReady) showSettings = true
                         }
@@ -275,6 +516,11 @@ class MainActivity : ComponentActivity() {
                             updateChecking = updateChecking,
                             updateMessage = updateMessage,
                             downloadProgress = downloadProgress,
+                            installUpdateButtonText = when {
+                                installAuthorizationRequired -> "打开安装授权"
+                                Build.VERSION.SDK_INT < 26 && legacySecurityHelp -> "打开安全设置并继续"
+                                else -> "系统确认安装"
+                            },
                             onCheckUpdates = checkForUpdates,
                             onDownloadUpdate = {
                                 val release = (updateResult as? UpdateCheckResult.Available)?.release ?: return@AiSettingsScreen

@@ -41,6 +41,7 @@ data class UpdateSectionControls(
 fun UpdateSection(
     result: UpdateCheckResult?, checking: Boolean, message: String?, downloadProgress: Int?,
     onCheck: () -> Unit, onDownload: () -> Unit, onCancel: () -> Unit, onInstall: () -> Unit,
+    installButtonText: String = "系统确认安装",
     onViewNotes: () -> Unit = {},
 ) {
     val controls = UpdateSectionControls.forState(result, checking, downloadProgress)
@@ -70,7 +71,7 @@ fun UpdateSection(
             Button(onClick = onCheck, enabled = controls.checkEnabled, shape = RoundedCornerShape(14.dp)) { Text(if (checking) "检查中…" else "检查更新", fontSize = 12.sp) }
             if (controls.downloadEnabled) Button(onClick = onDownload, shape = RoundedCornerShape(14.dp)) { Text("下载并校验 APK", fontSize = 12.sp) }
             if (controls.cancelEnabled) Button(onClick = onCancel, shape = RoundedCornerShape(14.dp)) { Text("取消", fontSize = 12.sp) }
-            if (controls.installEnabled) Button(onClick = onInstall, shape = RoundedCornerShape(14.dp)) { Text("系统确认安装", fontSize = 12.sp) }
+            if (controls.installEnabled) Button(onClick = onInstall, shape = RoundedCornerShape(14.dp)) { Text(installButtonText, fontSize = 12.sp) }
         }
     }
 }

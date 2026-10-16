@@ -129,6 +129,12 @@ class GitHubUpdateRepository(
         }
     }
 
+    suspend fun isVerifiedApk(context: Context, apk: File, expectedSha256: String): Boolean =
+        withContext(Dispatchers.IO) {
+            apk.isFile && apk.length() in 1..MAX_APK_BYTES &&
+                verifyDownloadedApk(context, apk, expectedSha256)
+        }
+
     private fun verifyDownloadedApk(context: Context, apk: File, expectedSha256: String): Boolean {
         val digest = MessageDigest.getInstance("SHA-256")
         apk.inputStream().buffered().use { input ->

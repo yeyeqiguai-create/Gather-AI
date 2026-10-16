@@ -74,6 +74,7 @@ fun AiSettingsScreen(
     onDownloadUpdate: () -> Unit = {},
     onCancelDownload: () -> Unit = {},
     onInstallUpdate: () -> Unit = {},
+    installUpdateButtonText: String = "系统确认安装",
     onViewUpdateNotes: () -> Unit = {},
     profiles: List<AiSettings> = emptyList(),
     onSelectProfile: (String) -> Unit = {},
@@ -278,6 +279,7 @@ fun AiSettingsScreen(
                     onDownload = onDownloadUpdate,
                     onCancel = onCancelDownload,
                     onInstall = onInstallUpdate,
+                    installButtonText = installUpdateButtonText,
                     onViewNotes = onViewUpdateNotes,
                 )
                 Row(
