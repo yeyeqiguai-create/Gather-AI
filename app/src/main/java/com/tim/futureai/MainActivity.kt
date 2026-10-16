@@ -24,6 +24,10 @@ import com.tim.futureai.domain.ai.AiChatConfig
 import com.tim.futureai.feature.chat.ChatScreen
 import com.tim.futureai.feature.chat.ChatUiState
 import com.tim.futureai.feature.chat.ChatViewModel
+import com.tim.futureai.feature.settings.AiSettings
+import com.tim.futureai.feature.settings.AiSettingsManager
+import com.tim.futureai.feature.settings.AiSettingsScreen
+import com.tim.futureai.feature.settings.SettingsSaveResult
 
 // 深色科技风基础配色（后续演进到 core 设计系统）。
 private val TechDarkColors = darkColorScheme(
@@ -52,6 +56,7 @@ class MainActivity : ComponentActivity() {
 
         // 组装依赖：安全存储 → 配置读取 → Provider → ViewModel。
         val keyStore = SecureKeyStore(this)
+        val settingsManager = AiSettingsManager(keyStore)
         val provider = OpenAiCompatProvider(configProvider = {
             val config = AiChatConfig(
                 baseUrl = keyStore.getString(SecureKeyStore.KEY_BASE_URL).orEmpty(),
@@ -68,12 +73,41 @@ class MainActivity : ComponentActivity() {
             ) {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     var uiState by remember { mutableStateOf<ChatUiState>(ChatUiState()) }
+                    var showSettings by remember { mutableStateOf(false) }
+                    var settings by remember { mutableStateOf(settingsManager.load()) }
+                    var isAiConfigured by remember { mutableStateOf(settingsManager.load().let { it.baseUrl.isNotBlank() && it.model.isNotBlank() && it.apiKey.isNotBlank() }) }
+                    var settingsMessage by remember { mutableStateOf<String?>(null) }
                     viewModel.onStateChanged = { uiState = it }
-                    ChatScreen(
+                    if (showSettings) {
+                        AiSettingsScreen(
+                            settings = settings,
+                            message = settingsMessage,
+                            onSettingsChanged = { settings = it; settingsMessage = null },
+                            onSave = {
+                                when (val result = settingsManager.save(settings)) {
+                                    SettingsSaveResult.Saved -> {
+                                        settingsMessage = "配置已安全保存"
+                                        isAiConfigured = true
+                                    }
+                                    is SettingsSaveResult.Invalid -> settingsMessage = result.message
+                                    SettingsSaveResult.StorageError -> settingsMessage = "保存失败，请重试"
+                                }
+                            },
+                            onBack = { showSettings = false },
+                            modifier = Modifier.padding(innerPadding),
+                        )
+                    } else ChatScreen(
                         state = uiState,
                         onInputChanged = viewModel::updateInput,
                         onSend = viewModel::send,
                         onDismissNotice = viewModel::dismissNotice,
+                        onSettingsClick = {
+                            settings = settingsManager.load()
+                            isAiConfigured = settings.baseUrl.isNotBlank() && settings.model.isNotBlank() && settings.apiKey.isNotBlank()
+                            settingsMessage = null
+                            showSettings = true
+                        },
+                        isAiConfigured = isAiConfigured,
                         modifier = Modifier.padding(innerPadding),
                     )
                 }

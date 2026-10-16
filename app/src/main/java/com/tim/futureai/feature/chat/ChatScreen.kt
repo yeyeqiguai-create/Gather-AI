@@ -44,6 +44,8 @@ fun ChatScreen(
     onInputChanged: (String) -> Unit,
     onSend: () -> Unit,
     onDismissNotice: () -> Unit = {},
+    onSettingsClick: () -> Unit = {},
+    isAiConfigured: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -51,6 +53,7 @@ fun ChatScreen(
         topBar = {
             TopAppBar(
                 title = { Text(state.sessionTitle) },
+                actions = { TextButton(onClick = onSettingsClick) { Text("设置") } },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
@@ -64,6 +67,14 @@ fun ChatScreen(
                 .padding(padding),
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
+                if (!isAiConfigured) {
+                    Text(
+                        text = "尚未配置 AI 服务，请先打开设置填写 Base URL、Model 和 API Key。",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
                 MessageList(
                     messages = state.messages,
                     modifier = Modifier
