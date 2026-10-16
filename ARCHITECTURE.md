@@ -1,6 +1,6 @@
-# Future AI 架构规范
+# Gather AI 架构规范
 
-本文档约定 Future AI（`com.tim.futureai`，Kotlin + Jetpack Compose，单 Gradle 模块 `:app`）的代码分层与规则。所有新代码必须遵守。
+本文档约定 Gather AI（`com.tim.futureai`，Kotlin + Jetpack Compose，单 Gradle 模块 `:app`）的代码分层与规则。所有新代码必须遵守。
 
 ## 分层职责
 

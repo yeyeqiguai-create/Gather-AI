@@ -6,7 +6,7 @@ import com.tim.futureai.domain.model.MessageRole
  * 聊天页状态与交互逻辑（纯 Kotlin，可单元测试；渲染交给 ChatScreen）。
  */
 data class ChatUiState(
-    val sessionTitle: String = "Future AI",
+    val sessionTitle: String = "Gather AI",
     val messages: List<ChatBubble> = emptyList(),
     val inputText: String = "",
     /** 请求进行中（等待 AI 回复）。 */

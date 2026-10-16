@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Future AI"
+rootProject.name = "Gather AI"
 include(":app")

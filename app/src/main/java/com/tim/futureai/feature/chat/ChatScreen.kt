@@ -136,7 +136,7 @@ private fun BrandBar(onSettingsClick: () -> Unit) {
         ) { FutureGlyph("spark", tint = Color.White, size = 22.dp) }
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text("Future AI", color = FuturePalette.Text, fontSize = 19.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp)
+            Text("Gather AI", color = FuturePalette.Text, fontSize = 19.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp)
             Text("YOUR THOUGHT PARTNER", color = FuturePalette.Muted, fontSize = 9.sp, letterSpacing = 1.5.sp)
         }
         Box(
@@ -281,7 +281,7 @@ private fun MessageBubble(message: ChatBubble) {
                 .padding(horizontal = 16.dp, vertical = 13.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            Text(if (isUser) "你" else "FUTURE AI", color = if (isUser) Color(0xFFDCD5FF) else FuturePalette.Cyan, fontSize = 9.sp, letterSpacing = 1.15.sp, fontWeight = FontWeight.SemiBold)
+            Text(if (isUser) "你" else "GATHER AI", color = if (isUser) Color(0xFFDCD5FF) else FuturePalette.Cyan, fontSize = 9.sp, letterSpacing = 1.15.sp, fontWeight = FontWeight.SemiBold)
             Text(message.text, color = FuturePalette.Text, fontSize = 14.sp, lineHeight = 22.sp)
         }
     }
