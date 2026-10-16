@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -55,7 +57,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -447,7 +452,16 @@ private fun MessageBubble(message: ChatBubble, index: Int, canRetry: Boolean, on
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             Text(if (isUser) "你" else "GATHER AI", color = if (isUser) Color(0xFFDCD5FF) else FuturePalette.Cyan, fontSize = 9.sp, letterSpacing = 1.15.sp, fontWeight = FontWeight.SemiBold)
-            Text(message.text, color = FuturePalette.Text, fontSize = 14.sp, lineHeight = 22.sp)
+            if (isUser) {
+                Text(message.text, color = FuturePalette.Text, fontSize = 14.sp, lineHeight = 23.sp)
+            } else {
+                MarkdownMessage(message.text, onCopyCode = { code ->
+                    copyMessageText(code, { text ->
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Gather AI code", text))
+                    }) {}
+                })
+            }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 TextButton(onClick = {
                     copyMessageText(message.text, { text ->
@@ -479,6 +493,80 @@ private fun MessageBubble(message: ChatBubble, index: Int, canRetry: Boolean, on
             }
         }
     }
+}
+
+@Composable
+private fun MarkdownMessage(text: String, onCopyCode: (String) -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        parseChatMarkdown(text).forEach { block ->
+            when (block) {
+                is MarkdownBlock.Paragraph -> Text(inlineMarkdown(block.text), color = FuturePalette.Text, fontSize = 14.sp, lineHeight = 24.sp)
+                is MarkdownBlock.Heading -> Text(
+                    inlineMarkdown(block.text), color = FuturePalette.Text,
+                    fontSize = when (block.level) { 1 -> 21.sp; 2 -> 19.sp; 3 -> 17.sp; else -> 15.sp },
+                    lineHeight = 26.sp, fontWeight = FontWeight.SemiBold,
+                )
+                is MarkdownBlock.ListItem -> Row(verticalAlignment = Alignment.Top) {
+                    Text(if (block.marker.firstOrNull()?.isDigit() == true) "${block.marker} " else "• ", color = FuturePalette.Cyan, fontSize = 14.sp, lineHeight = 23.sp)
+                    Text(inlineMarkdown(block.text), color = FuturePalette.Text, fontSize = 14.sp, lineHeight = 23.sp, modifier = Modifier.weight(1f))
+                }
+                is MarkdownBlock.Quote -> Row(verticalAlignment = Alignment.Top) {
+                    Box(Modifier.padding(end = 10.dp).width(3.dp).heightIn(min = 34.dp).background(FuturePalette.VioletBright.copy(alpha = 0.8f), RoundedCornerShape(2.dp)))
+                    Text(inlineMarkdown(block.text), color = FuturePalette.Muted, fontSize = 13.sp, lineHeight = 22.sp, modifier = Modifier.weight(1f))
+                }
+                is MarkdownBlock.Code -> CodeBlock(block.source, onCopyCode)
+                MarkdownBlock.Divider -> Box(Modifier.fillMaxWidth().padding(vertical = 4.dp).height(1.dp).background(FuturePalette.Edge))
+            }
+        }
+    }
+}
+
+@Composable
+private fun CodeBlock(source: String, onCopy: (String) -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+            .background(Color(0xFF10131D)).border(1.dp, FuturePalette.Edge, RoundedCornerShape(14.dp)),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().background(Color(0xFF1B2030)).padding(start = 12.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("代码", color = FuturePalette.Muted, fontSize = 10.sp, modifier = Modifier.weight(1f))
+            TextButton(onClick = { onCopy(source) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+                FutureGlyph("copy", tint = FuturePalette.VioletBright, size = 13.dp)
+                Spacer(Modifier.width(4.dp))
+                Text("复制代码", color = FuturePalette.VioletBright, fontSize = 10.sp)
+            }
+        }
+        Box(
+            Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState())
+                .horizontalScroll(rememberScrollState()).padding(12.dp),
+        ) {
+            Text(source, color = Color(0xFFD8E6FF), fontSize = 12.sp, lineHeight = 18.sp, softWrap = false, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+        }
+    }
+}
+
+private fun inlineMarkdown(source: String): AnnotatedString {
+    val result = AnnotatedString.Builder()
+    val pattern = Regex("\\*\\*(.+?)\\*\\*|__(.+?)__|\\*([^*\\n]+?)\\*|_([^_\\n]+?)_")
+    var cursor = 0
+    pattern.findAll(source).forEach { match ->
+        result.append(source.substring(cursor, match.range.first))
+        val bold = match.groups[1]?.value ?: match.groups[2]?.value
+        val italic = match.groups[3]?.value ?: match.groups[4]?.value
+        val content = bold ?: italic.orEmpty()
+        val style = if (bold != null) SpanStyle(fontWeight = FontWeight.Bold) else SpanStyle(fontStyle = FontStyle.Italic)
+        result.pushStyle(style)
+        result.append(content)
+        result.pop()
+        cursor = match.range.last + 1
+    }
+    result.append(source.substring(cursor))
+    return result.toAnnotatedString()
 }
 
 @Composable
