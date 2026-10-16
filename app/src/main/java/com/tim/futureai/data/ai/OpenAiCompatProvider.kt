@@ -2,8 +2,10 @@ package com.tim.futureai.data.ai
 
 import com.tim.futureai.core.common.AppError
 import com.tim.futureai.core.common.AppResult
+import com.tim.futureai.core.common.NetworkFailureKind
 import com.tim.futureai.core.common.toAppError
 import com.tim.futureai.domain.ai.AiChatConfig
+import com.tim.futureai.domain.ai.AiRequestPhase
 import com.tim.futureai.domain.ai.AiProvider
 import com.tim.futureai.domain.model.ChatMessage
 import kotlinx.coroutines.CancellationException
@@ -14,6 +16,8 @@ import java.util.concurrent.atomic.AtomicReference
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URI
+import java.net.SocketTimeoutException
 import java.util.concurrent.TimeoutException
 
 /**
@@ -28,18 +32,24 @@ class OpenAiCompatProvider(
     private val readTimeoutMs: Int = 60_000,
 ) : AiProvider {
 
-    override suspend fun complete(messages: List<ChatMessage>): AppResult<String> {
+    override suspend fun complete(messages: List<ChatMessage>): AppResult<String> = complete(messages) {}
+
+    override suspend fun complete(messages: List<ChatMessage>, onPhase: (AiRequestPhase) -> Unit): AppResult<String> {
         val config = configProvider()
-            ?: return AppResult.failure(AppError.Unknown("AI 服务未配置：缺少 Base URL、模型名或 API Key"))
+            ?: return AppResult.failure(AppError.Configuration("AI 服务未配置：请检查 Base URL、模型名和 API Key"))
         if (!config.isConfigured()) {
-            return AppResult.failure(AppError.Unknown("AI 服务未配置：缺少 Base URL、模型名或 API Key"))
+            return AppResult.failure(AppError.Configuration("AI 服务未配置：请检查 Base URL、模型名和 API Key"))
         }
+        if (!isValidBaseUrl(config.baseUrl)) return AppResult.failure(AppError.Configuration("Base URL 格式无效：请输入 http 或 https 接口地址"))
         return suspendCancellableCoroutine { continuation ->
             val connection = AtomicReference<HttpURLConnection?>(null)
             continuation.invokeOnCancellation { connection.get()?.disconnect() }
             Dispatchers.IO.dispatch(continuation.context, Runnable {
                 if (!continuation.isActive) return@Runnable
-                val result = execute(config, messages, connection) { continuation.isActive }
+                onPhase(AiRequestPhase.REQUESTING)
+                val result = execute(config, messages, connection, { continuation.isActive }) {
+                    onPhase(AiRequestPhase.RECEIVING_REPLY)
+                }
                 try {
                     continuation.resume(result)
                 } catch (e: IllegalStateException) {
@@ -54,6 +64,7 @@ class OpenAiCompatProvider(
         messages: List<ChatMessage>,
         connection: AtomicReference<HttpURLConnection?>,
         isActive: () -> Boolean,
+        onResponseReceived: () -> Unit,
     ): AppResult<String> {
         val conn = try {
             val url = URL("${config.baseUrl.trimEnd('/')}/chat/completions")
@@ -80,6 +91,7 @@ class OpenAiCompatProvider(
             conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
 
             val code = conn.responseCode
+            onResponseReceived()
             if (code in 200..299) {
                 val responseBody = conn.inputStream.bufferedReader().readText()
                 return try {
@@ -90,16 +102,19 @@ class OpenAiCompatProvider(
             }
             // 非 2xx：读错误流并映射
             val errorBody = conn.errorStream?.bufferedReader()?.readText().orEmpty()
-            val message = sanitize(errorBody.let(OpenAiWire::extractErrorMessage), config.apiKey)
+            val safeBody = sanitize(errorBody, config.apiKey)
+            val message = sanitize(safeBody.let(OpenAiWire::extractErrorMessage), config.apiKey)
             return AppResult.failure(mapHttpError(code, message))
         } catch (e: CancellationException) {
             throw e
         } catch (e: OpenAiWire.ResponseParseException) {
             return AppResult.failure(AppError.Parse(e.message, e))
+        } catch (e: SocketTimeoutException) {
+            return AppResult.failure(AppError.Network("Request timed out", e, NetworkFailureKind.TIMEOUT))
         } catch (e: IOException) {
-            return AppResult.failure(AppError.Network(sanitize(e.message.orEmpty(), config.apiKey), e))
+            return AppResult.failure(AppError.Network(sanitize(e.message.orEmpty(), config.apiKey), e, NetworkFailureKind.CONNECTION))
         } catch (e: TimeoutException) {
-            return AppResult.failure(AppError.Network("Request timed out", e))
+            return AppResult.failure(AppError.Network("Request timed out", e, NetworkFailureKind.TIMEOUT))
         } catch (e: Exception) {
             return AppResult.failure(AppError.Unknown(sanitize(e.message ?: "Unexpected error", config.apiKey), e))
         } finally {
@@ -110,6 +125,9 @@ class OpenAiCompatProvider(
 
     private fun sanitizeError(error: AppError, apiKey: String): AppError = when (error) {
         is AppError.Network -> error.copy(message = sanitize(error.message.orEmpty(), apiKey))
+        is AppError.Configuration -> error.copy(message = sanitize(error.message, apiKey))
+        is AppError.ModelUnavailable -> error.copy(message = sanitize(error.message, apiKey))
+        is AppError.Http -> error.copy(message = sanitize(error.message, apiKey))
         is AppError.Auth -> error.copy(message = sanitize(error.message.orEmpty(), apiKey))
         is AppError.RateLimited -> error.copy(message = sanitize(error.message.orEmpty(), apiKey))
         is AppError.Server -> error.copy(message = sanitize(error.message.orEmpty(), apiKey))
@@ -118,16 +136,32 @@ class OpenAiCompatProvider(
         AppError.Cancelled -> error
     }
 
-    private fun sanitize(message: String, apiKey: String): String =
-        if (apiKey.isBlank()) message else message.replace(apiKey, "[redacted]")
+    private fun sanitize(message: String, apiKey: String): String {
+        val noAuthorization = message.replace(
+            Regex("(?i)authorization\\s*:\\s*bearer\\s+[^\\s,;]+"),
+            "[redacted credentials]",
+        ).replace(Regex("(?i)bearer\\s+[A-Za-z0-9._~+/-]+=*"), "Bearer [redacted]")
+        return if (apiKey.isBlank()) noAuthorization else noAuthorization.replace(apiKey, "[redacted]")
+    }
+
+    private fun isValidBaseUrl(baseUrl: String): Boolean = runCatching {
+        val uri = URI(baseUrl.trim())
+        uri.isAbsolute && uri.scheme.lowercase() in setOf("http", "https") &&
+            !uri.host.isNullOrBlank() && uri.userInfo == null && uri.query == null && uri.fragment == null
+    }.getOrDefault(false)
 
     companion object {
         /** HTTP 状态码 → [AppError] 的统一映射（独立函数，便于测试）。 */
-        fun mapHttpError(code: Int, message: String): AppError = when (code) {
-            401, 403 -> AppError.Auth(message)
-            429 -> AppError.RateLimited(message)
-            in 500..599 -> AppError.Server(message, httpCode = code)
-            else -> AppError.Server("HTTP $code: $message", httpCode = code)
+        fun mapHttpError(code: Int, message: String): AppError {
+            val modelIssue = message.contains("model", ignoreCase = true) &&
+                listOf("not found", "does not exist", "doesn't exist", "unavailable", "unsupported").any { message.contains(it, ignoreCase = true) }
+            return when {
+                code == 401 || code == 403 -> AppError.Auth(message, httpCode = code)
+                code == 429 -> AppError.RateLimited(message, httpCode = code)
+                code in 500..599 -> AppError.Server(message, httpCode = code)
+                modelIssue -> AppError.ModelUnavailable(message, code)
+                else -> AppError.Http("HTTP $code: $message", code)
+            }
         }
     }
 }

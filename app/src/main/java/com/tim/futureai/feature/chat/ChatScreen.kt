@@ -139,10 +139,18 @@ fun ChatScreen(
                     if (!isAiConfigured) {
                         SetupStatusCard(onClick = onSettingsClick, modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
                     }
-                    state.notice?.let { NoticeCard(it, onDismissNotice, Modifier.padding(horizontal = 18.dp, vertical = 6.dp)) }
+                    if (state.requestStatus != ChatRequestStatus.IDLE) {
+                        RequestStatusCard(state.requestStatus, Modifier.padding(horizontal = 18.dp, vertical = 5.dp))
+                    }
+                    val retryIndex = state.messages.lastIndex.takeIf { index ->
+                        index >= 0 && state.messages[index].role == MessageRole.USER &&
+                            state.messages[index].status in setOf(MessageStatus.FAILED, MessageStatus.CANCELLED)
+                    }
+                    state.notice?.let {
+                        NoticeCard(it, onDismissNotice, retryIndex?.let { index -> { onRetry(index) } }, Modifier.padding(horizontal = 18.dp, vertical = 6.dp))
+                    }
                     Conversation(
                         messages = state.messages,
-                        isLoading = state.isLoading,
                         onRegenerate = onRegenerate,
                         onRetry = onRetry,
                         modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -412,10 +420,9 @@ private fun PromptCard(text: String, index: Int, onClick: () -> Unit) {
 }
 
 @Composable
-private fun Conversation(messages: List<ChatBubble>, isLoading: Boolean, onRegenerate: (Int) -> Unit, onRetry: (Int) -> Unit, modifier: Modifier = Modifier) {
+private fun Conversation(messages: List<ChatBubble>, onRegenerate: (Int) -> Unit, onRetry: (Int) -> Unit, modifier: Modifier = Modifier) {
     val listState = rememberLazyListState()
-    val count = messages.size + if (isLoading) 1 else 0
-    LaunchedEffect(count) { if (count > 0) listState.animateScrollToItem(count - 1) }
+    LaunchedEffect(messages.size) { if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex) }
     LazyColumn(
         state = listState,
         modifier = modifier,
@@ -423,7 +430,6 @@ private fun Conversation(messages: List<ChatBubble>, isLoading: Boolean, onRegen
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         itemsIndexed(messages) { index, message -> MessageBubble(message, index, index == messages.lastIndex, onRegenerate, onRetry) }
-        if (isLoading) item { ThinkingBubble() }
     }
 }
 
@@ -570,21 +576,44 @@ private fun inlineMarkdown(source: String): AnnotatedString {
 }
 
 @Composable
-private fun ThinkingBubble() {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 36.dp)) {
-        CircularProgressIndicator(Modifier.size(15.dp), color = FuturePalette.VioletBright, strokeWidth = 2.dp)
-        Spacer(Modifier.width(10.dp))
-        Text("正在思考…", color = FuturePalette.Muted, fontSize = 12.sp)
+private fun RequestStatusCard(status: ChatRequestStatus, modifier: Modifier = Modifier) {
+    val running = status in setOf(ChatRequestStatus.PREPARING, ChatRequestStatus.REQUESTING, ChatRequestStatus.RECEIVING_REPLY)
+    val accent = when (status) {
+        ChatRequestStatus.FAILED -> FuturePalette.Danger
+        ChatRequestStatus.CANCELLED -> FuturePalette.Muted
+        else -> FuturePalette.Cyan
+    }
+    val (title, detail) = when (status) {
+        ChatRequestStatus.IDLE -> "" to ""
+        ChatRequestStatus.PREPARING -> "准备中" to "正在整理当前会话内容"
+        ChatRequestStatus.REQUESTING -> "请求中" to "正在连接 AI 服务"
+        ChatRequestStatus.RECEIVING_REPLY -> "接收回复中" to "AI 服务正在返回内容"
+        ChatRequestStatus.COMPLETED -> "请求完成" to "回复已加入当前会话"
+        ChatRequestStatus.FAILED -> "请求失败" to "查看下方原因，可重试"
+        ChatRequestStatus.CANCELLED -> "已取消" to "请求已停止，可重新发送"
+    }
+    Row(
+        modifier.fillMaxWidth().glassPanel(RoundedCornerShape(15.dp)).padding(horizontal = 13.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (running) CircularProgressIndicator(Modifier.size(15.dp), color = accent, strokeWidth = 2.dp)
+        else Text(if (status == ChatRequestStatus.COMPLETED) "✓" else if (status == ChatRequestStatus.FAILED) "!" else "Ⅱ", color = accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.width(9.dp))
+        Column {
+            Text(title, color = accent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Text(detail, color = FuturePalette.Muted, fontSize = 10.sp)
+        }
     }
 }
 
 @Composable
-private fun NoticeCard(text: String, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+private fun NoticeCard(text: String, onDismiss: () -> Unit, onRetry: (() -> Unit)? = null, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).padding(start = 15.dp, top = 9.dp, bottom = 9.dp, end = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(text, color = FuturePalette.Danger, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.weight(1f))
+        if (onRetry != null) TextButton(onClick = onRetry) { Text("重试", color = FuturePalette.Cyan, fontSize = 11.sp) }
         TextButton(onClick = onDismiss) { Text("知道了", color = FuturePalette.VioletBright, fontSize = 11.sp) }
     }
 }

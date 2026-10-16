@@ -54,6 +54,11 @@ class OpenAiWireTest {
     }
 
     @Test(expected = OpenAiWire.ResponseParseException::class)
+    fun extractReplyContent_rejectsBlankAssistantText() {
+        OpenAiWire.extractReplyContent("""{"choices":[{"message":{"content":"  "}}]}""")
+    }
+
+    @Test(expected = OpenAiWire.ResponseParseException::class)
     fun extractReplyContent_missingChoicesThrows() {
         OpenAiWire.extractReplyContent("""{"id":"x"}""")
     }
@@ -112,7 +117,7 @@ class OpenAiWireTest {
 
     @Test
     fun mapHttpError_otherCode_mapsToServer() {
-        val e = OpenAiCompatProvider.mapHttpError(400, "bad request") as AppError.Server
+        val e = OpenAiCompatProvider.mapHttpError(400, "bad request") as AppError.Http
         assertEquals(400, e.httpCode)
         assertTrue(e.message!!.contains("400"))
     }

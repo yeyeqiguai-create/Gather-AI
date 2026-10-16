@@ -3,6 +3,7 @@ package com.tim.futureai.feature.chat
 import com.tim.futureai.core.common.AppError
 import com.tim.futureai.core.common.AppResult
 import com.tim.futureai.domain.ai.AiProvider
+import com.tim.futureai.domain.ai.AiRequestPhase
 import com.tim.futureai.domain.chat.ChatSessionData
 import com.tim.futureai.domain.chat.ChatSessionsLoad
 import com.tim.futureai.domain.chat.ChatSessionsRepository
@@ -88,6 +89,7 @@ class ChatViewModelTest {
         assertEquals("hello", vm.state.messages[0].text)
         assertEquals("AI says hi", vm.state.messages[1].text)
         assertNull(vm.state.notice)
+        assertEquals(ChatRequestStatus.COMPLETED, vm.state.requestStatus)
         assertEquals(1, p.received[0].size)
         assertEquals("hello", p.received[0][0].content)
     }
@@ -102,7 +104,7 @@ class ChatViewModelTest {
 
         assertFalse(vm.state.isLoading)
         assertEquals(1, vm.state.messages.size) // 只有用户消息，无伪造回复
-        assertEquals("鉴权失败：请检查 API Key 是否有效", vm.state.notice)
+        assertEquals("鉴权失败（HTTP 401），请检查 API Key 后重试", vm.state.notice)
     }
 
     @Test
@@ -130,12 +132,13 @@ class ChatViewModelTest {
 
     @Test
     fun unconfiguredProvider_showsConfigNotice() {
-        val p = FakeProvider(AppResult.failure(AppError.Unknown("AI 服务未配置：缺少 Base URL、模型名或 API Key")))
+        val p = FakeProvider(AppResult.failure(AppError.Configuration("请检查配置")))
         val vm = newVm(p)
         vm.updateInput("hi")
         vm.send()
         awaitSettled(vm)
-        assertTrue(vm.state.notice!!.contains("未配置"))
+        assertTrue(vm.state.notice!!.contains("配置"))
+        assertEquals(ChatRequestStatus.FAILED, vm.state.requestStatus)
         assertEquals(1, vm.state.messages.size)
     }
 
@@ -225,6 +228,58 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun requestReportsPreparingRequestingReceivingAndCompletedPhases() {
+        val phases = mutableListOf<ChatRequestStatus>()
+        val provider = object : AiProvider {
+            override suspend fun complete(messages: List<ChatMessage>) = AppResult.success("完成")
+            override suspend fun complete(messages: List<ChatMessage>, onPhase: (AiRequestPhase) -> Unit): AppResult<String> {
+                onPhase(AiRequestPhase.REQUESTING)
+                kotlinx.coroutines.yield()
+                onPhase(AiRequestPhase.RECEIVING_REPLY)
+                kotlinx.coroutines.yield()
+                return AppResult.success("完成")
+            }
+        }
+        val vm = newVm(provider)
+        vm.onStateChanged = { phases += it.requestStatus }
+        vm.updateInput("状态测试")
+        vm.send()
+
+        assertTrue(phases.contains(ChatRequestStatus.PREPARING))
+        assertTrue(phases.contains(ChatRequestStatus.REQUESTING))
+        assertTrue(phases.contains(ChatRequestStatus.RECEIVING_REPLY))
+        assertEquals(ChatRequestStatus.COMPLETED, vm.state.requestStatus)
+    }
+
+    @Test
+    fun switchingSessionCancelsOldRequestAndDoesNotShowItsResultInNewSession() {
+        val history = MemoryHistory().apply {
+            val first = ChatSessionData(ChatSession(id = "current", title = "当前"), emptyList())
+            val second = ChatSessionData(ChatSession(id = "other", title = "另一个"), emptyList())
+            snapshot = ChatSessionsSnapshot(listOf(first, second), "current")
+        }
+        var cancelled = false
+        val provider = object : AiProvider {
+            override suspend fun complete(messages: List<ChatMessage>): AppResult<String> = suspendCancellableCoroutine { continuation ->
+                continuation.invokeOnCancellation { cancelled = true }
+            }
+        }
+        val vm = ChatViewModel(RecordingScope(), provider, sessionsRepository = history)
+        vm.updateInput("旧会话请求")
+        vm.send()
+        vm.selectSession("other")
+
+        assertTrue(cancelled)
+        assertEquals("other", vm.state.activeSessionId)
+        assertTrue(vm.state.messages.isEmpty())
+        assertEquals(ChatRequestStatus.IDLE, vm.state.requestStatus)
+        assertFalse(vm.state.isLoading)
+        vm.selectSession("current")
+        assertEquals(listOf(MessageStatus.CANCELLED), vm.state.messages.map { it.status })
+        assertEquals(listOf("旧会话请求"), history.snapshot.sessions.first { it.session.id == "current" }.messages.map { it.content })
+    }
+
+    @Test
     fun regenerateReplacesReplyWithoutDuplicatingAndUsesOriginalQuestion() {
         val history = MemoryHistory(listOf(
             ChatMessage(id = "u", sessionId = "current", role = MessageRole.USER, content = "原问题"),
@@ -249,7 +304,27 @@ class ChatViewModelTest {
         assertEquals("旧回答", vm.state.messages[1].text)
         assertEquals("旧回答", history.messages[1].content)
         assertFalse(vm.state.isLoading)
-        assertTrue(vm.state.notice!!.contains("网络错误"))
+        assertTrue(vm.state.notice!!.contains("网络连接失败"))
+    }
+
+    @Test
+    fun regenerationFailureStatusDoesNotLeakAcrossSessions() {
+        val history = MemoryHistory(listOf(
+            ChatMessage(id = "u", sessionId = "current", role = MessageRole.USER, content = "原问题"),
+            ChatMessage(id = "a", sessionId = "current", role = MessageRole.ASSISTANT, content = "原回答"),
+        )).apply {
+            snapshot = snapshot.copy(
+                sessions = snapshot.sessions + ChatSessionData(ChatSession(id = "other", title = "另一会话"), emptyList()),
+            )
+        }
+        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.failure(AppError.Network("offline"))), sessionsRepository = history)
+        vm.regenerate(1)
+        assertEquals(ChatRequestStatus.FAILED, vm.state.requestStatus)
+        vm.selectSession("other")
+        assertEquals(ChatRequestStatus.IDLE, vm.state.requestStatus)
+        vm.selectSession("current")
+        assertEquals(ChatRequestStatus.FAILED, vm.state.requestStatus)
+        assertEquals("原回答", vm.state.messages.last().text)
     }
 
     @Test
@@ -258,6 +333,26 @@ class ChatViewModelTest {
         val retryVm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("恢复成功")), failed)
         retryVm.retry(0)
         assertEquals(listOf("问题", "恢复成功"), retryVm.state.messages.map { it.text })
+    }
+
+    @Test
+    fun retryAfterNetworkFailureReusesOriginalMessageAndCompletes() {
+        var calls = 0
+        val provider = object : AiProvider {
+            override suspend fun complete(messages: List<ChatMessage>): AppResult<String> {
+                calls++
+                return if (calls == 1) AppResult.failure(AppError.Network("offline")) else AppResult.success("恢复")
+            }
+        }
+        val vm = newVm(provider)
+        vm.updateInput("同一条问题")
+        vm.send()
+        assertEquals(ChatRequestStatus.FAILED, vm.state.requestStatus)
+        vm.retry(0)
+
+        assertEquals(2, calls)
+        assertEquals(listOf("同一条问题", "恢复"), vm.state.messages.map { it.text })
+        assertEquals(ChatRequestStatus.COMPLETED, vm.state.requestStatus)
     }
 
     @Test
@@ -278,6 +373,7 @@ class ChatViewModelTest {
         assertEquals(MessageStatus.CANCELLED, vm.state.messages.single().status)
         assertEquals(MessageStatus.CANCELLED, history.messages.single().status)
         assertFalse(vm.state.isLoading)
+        assertEquals(ChatRequestStatus.CANCELLED, vm.state.requestStatus)
     }
 
     @Test
@@ -316,9 +412,14 @@ class ChatViewModelTest {
     @Test
     fun errorToUserMessage_coversAllTypes() {
         assertTrue(ChatViewModel.errorToUserMessage(AppError.Network(null)).contains("网络"))
+        assertTrue(ChatViewModel.errorToUserMessage(AppError.Network(kind = com.tim.futureai.core.common.NetworkFailureKind.TIMEOUT)).contains("超时"))
+        assertTrue(ChatViewModel.errorToUserMessage(AppError.Configuration("sensitive" )).contains("配置"))
         assertTrue(ChatViewModel.errorToUserMessage(AppError.RateLimited(null)).contains("频繁"))
-        assertTrue(ChatViewModel.errorToUserMessage(AppError.Server("boom")).contains("服务端"))
+        assertTrue(ChatViewModel.errorToUserMessage(AppError.Server("sensitive", httpCode = 503)).contains("503"))
+        assertTrue(ChatViewModel.errorToUserMessage(AppError.ModelUnavailable("sensitive", 404)).contains("模型"))
+        assertTrue(ChatViewModel.errorToUserMessage(AppError.Http("sensitive", 400)).contains("400"))
         assertTrue(ChatViewModel.errorToUserMessage(AppError.Cancelled).contains("取消"))
-        assertTrue(ChatViewModel.errorToUserMessage(AppError.Unknown(null)).contains("未知"))
+        assertTrue(ChatViewModel.errorToUserMessage(AppError.Unknown("sensitive")).contains("请求失败"))
+        assertFalse(ChatViewModel.errorToUserMessage(AppError.Http("test-key-do-not-log", 400)).contains("test-key-do-not-log"))
     }
 }

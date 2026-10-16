@@ -2,6 +2,7 @@ package com.tim.futureai.feature.chat
 
 import com.tim.futureai.domain.model.MessageRole
 import com.tim.futureai.domain.model.ChatSession
+import com.tim.futureai.domain.model.MessageStatus
 
 /**
  * 聊天页状态与交互逻辑（纯 Kotlin，可单元测试；渲染交给 ChatScreen）。
@@ -12,9 +13,10 @@ data class ChatUiState(
     val sessions: List<ChatSession> = emptyList(),
     val messages: List<ChatBubble> = emptyList(),
     val inputText: String = "",
-    /** 请求进行中（等待 AI 回复）。 */
+    /** Whether an AI request currently prevents duplicate sends. */
     val isLoading: Boolean = false,
     val isHistoryLoading: Boolean = false,
+    val requestStatus: ChatRequestStatus = ChatRequestStatus.IDLE,
     /** 需要展示给用户的提示（错误/配置缺失）；用户可见后可清除。 */
     val notice: String? = null,
 ) {
@@ -38,10 +40,14 @@ data class ChatUiState(
     fun updateInput(text: String): ChatUiState = copy(inputText = text)
 
     /** 发送开始：清提示、进入加载态。 */
-    fun startSending(): ChatUiState = copy(isLoading = true, notice = null)
+    fun startSending(): ChatUiState = copy(isLoading = true, requestStatus = ChatRequestStatus.PREPARING, notice = null)
 
     /** 请求完成：清除加载态，可带提示。 */
-    fun finishSending(notice: String? = null): ChatUiState = copy(isLoading = false, notice = notice)
+    fun finishSending(notice: String? = null): ChatUiState = copy(
+        isLoading = false,
+        requestStatus = if (notice == null) ChatRequestStatus.COMPLETED else ChatRequestStatus.FAILED,
+        notice = notice,
+    )
 
     /** 追加一条助手回复气泡。 */
     fun addAssistantReply(text: String): ChatUiState =
@@ -49,4 +55,14 @@ data class ChatUiState(
 
     /** 清除提示。 */
     fun dismissNotice(): ChatUiState = copy(notice = null)
+}
+
+enum class ChatRequestStatus { IDLE, PREPARING, REQUESTING, RECEIVING_REPLY, COMPLETED, FAILED, CANCELLED }
+
+internal fun statusForMessages(messages: List<ChatBubble>): ChatRequestStatus = when (messages.lastOrNull()?.status) {
+    MessageStatus.GENERATING -> ChatRequestStatus.FAILED
+    MessageStatus.FAILED -> ChatRequestStatus.FAILED
+    MessageStatus.CANCELLED -> ChatRequestStatus.CANCELLED
+    MessageStatus.SENT -> ChatRequestStatus.COMPLETED
+    null -> ChatRequestStatus.IDLE
 }

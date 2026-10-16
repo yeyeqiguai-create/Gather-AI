@@ -14,7 +14,15 @@ interface AiProvider {
      * 实现不得吞掉异常：所有失败以 [AppResult.Failure] 结构化返回。
      */
     suspend fun complete(messages: List<ChatMessage>): AppResult<String>
+
+    /** Providers may report transport phases; default keeps simple/fake providers source-compatible. */
+    suspend fun complete(messages: List<ChatMessage>, onPhase: (AiRequestPhase) -> Unit): AppResult<String> {
+        onPhase(AiRequestPhase.REQUESTING)
+        return complete(messages)
+    }
 }
+
+enum class AiRequestPhase { REQUESTING, RECEIVING_REPLY }
 
 /**
  * OpenAI Chat Completions 兼容服务商配置。

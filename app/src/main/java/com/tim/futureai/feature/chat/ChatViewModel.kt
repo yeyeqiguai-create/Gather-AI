@@ -3,6 +3,7 @@ package com.tim.futureai.feature.chat
 import com.tim.futureai.core.common.AppError
 import com.tim.futureai.core.common.AppResult
 import com.tim.futureai.domain.ai.AiProvider
+import com.tim.futureai.domain.ai.AiRequestPhase
 import com.tim.futureai.domain.chat.ChatSessionData
 import com.tim.futureai.domain.chat.ChatSessionsRepository
 import com.tim.futureai.domain.chat.ChatSessionsSnapshot
@@ -12,7 +13,6 @@ import com.tim.futureai.domain.model.MessageRole
 import com.tim.futureai.domain.model.MessageStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.launch
 import java.time.Instant
 
@@ -30,6 +30,8 @@ class ChatViewModel(
     private var sendJob: Job? = null
     private var activeUserIndex: Int? = null
     private var activeAssistantIndex: Int? = null
+    private var requestGeneration = 0L
+    private val requestStatusBySession = mutableMapOf<String, ChatRequestStatus>()
 
     init {
         if (sessionsRepository != null) scope.launch {
@@ -40,12 +42,16 @@ class ChatViewModel(
             val bubbles = active.messages.map { m ->
                 ChatBubble(m.role, m.content, if (m.status == MessageStatus.GENERATING) MessageStatus.FAILED else m.status)
             }
+            sessionData.forEach { data ->
+                requestStatusBySession[data.session.id] = statusForMessages(data.messages.map { ChatBubble(it.role, it.content, it.status) })
+            }
             setState(_state.copy(
                 activeSessionId = active.session.id,
                 sessionTitle = active.session.title,
                 sessions = sessionData.map { it.session },
                 messages = bubbles,
                 isHistoryLoading = false,
+                requestStatus = statusForMessages(bubbles),
                 notice = if (loaded?.failed == true || loaded == null) "本地会话读取失败，已创建新会话" else null,
             ))
         } else {
@@ -59,7 +65,8 @@ class ChatViewModel(
     fun dismissNotice() = setState(_state.dismissNotice())
 
     fun newSession() {
-        if (_state.isLoading || _state.isHistoryLoading) return
+        if (_state.isHistoryLoading) return
+        if (_state.isLoading) stopActiveRequest(showNotice = false)
         syncActiveMessages(_state.messages)
         val data = defaultSession()
         sessionData.add(0, data)
@@ -68,7 +75,8 @@ class ChatViewModel(
     }
 
     fun selectSession(id: String) {
-        if (_state.isLoading || _state.isHistoryLoading || id == _state.activeSessionId) return
+        if (_state.isHistoryLoading || id == _state.activeSessionId) return
+        if (_state.isLoading) stopActiveRequest(showNotice = false)
         syncActiveMessages(_state.messages)
         sessionData.firstOrNull { it.session.id == id }?.let { showSession(it); persistAll() }
     }
@@ -100,6 +108,7 @@ class ChatViewModel(
     fun deleteSession(id: String): Boolean {
         if (_state.isLoading || _state.isHistoryLoading || sessionData.none { it.session.id == id }) return false
         sessionData.removeAll { it.session.id == id }
+        requestStatusBySession.remove(id)
         if (sessionData.isEmpty()) sessionData += defaultSession()
         if (id == _state.activeSessionId) showSession(sessionData.first())
         else setState(_state.copy(sessions = sessionData.map { it.session }))
@@ -119,11 +128,13 @@ class ChatViewModel(
         val messages = current.messages + user
         val defaultTitle = sessionData.firstOrNull { it.session.id == sessionId }?.session?.title == "新对话"
         val title = if (defaultTitle && userIndex == 0) text.take(48) else current.sessionTitle
-        setState(current.copy(messages = messages, inputText = "", isLoading = true, notice = null, sessionTitle = title))
+        requestStatusBySession[sessionId] = ChatRequestStatus.PREPARING
+        setState(current.copy(messages = messages, inputText = "", isLoading = true, requestStatus = ChatRequestStatus.PREPARING, notice = null, sessionTitle = title))
         updateSessionTitle(sessionId, title)
         activeUserIndex = userIndex
         activeAssistantIndex = null
-        sendJob = scope.launch { runRequest(history, userIndex, null) }
+        val requestId = ++requestGeneration
+        sendJob = scope.launch { runRequest(requestId, sessionId, history, userIndex, null) }
     }
 
     fun regenerate(assistantIndex: Int) {
@@ -132,10 +143,12 @@ class ChatViewModel(
         if (current.messages[assistantIndex].role != MessageRole.ASSISTANT) return
         val userIndex = (assistantIndex - 1 downTo 0).firstOrNull { current.messages[it].role == MessageRole.USER } ?: return
         val history = current.messages.take(userIndex + 1).map { ChatMessage(sessionId = current.activeSessionId, role = it.role, content = it.text) }
-        setState(current.copy(isLoading = true, notice = null))
+        requestStatusBySession[current.activeSessionId] = ChatRequestStatus.PREPARING
+        setState(current.copy(isLoading = true, requestStatus = ChatRequestStatus.PREPARING, notice = null))
         activeUserIndex = userIndex
         activeAssistantIndex = assistantIndex
-        sendJob = scope.launch { runRequest(history, userIndex, assistantIndex) }
+        val requestId = ++requestGeneration
+        sendJob = scope.launch { runRequest(requestId, current.activeSessionId, history, userIndex, assistantIndex) }
     }
 
     fun retry(userIndex: Int) {
@@ -145,19 +158,39 @@ class ChatViewModel(
         if (user.role != MessageRole.USER || user.status !in setOf(MessageStatus.FAILED, MessageStatus.CANCELLED)) return
         val history = current.messages.take(userIndex + 1).map { ChatMessage(sessionId = current.activeSessionId, role = it.role, content = it.text) }
         val next = current.messages.toMutableList().also { it[userIndex] = user.copy(status = MessageStatus.GENERATING) }
-        setState(current.copy(messages = next, isLoading = true, notice = null))
+        requestStatusBySession[current.activeSessionId] = ChatRequestStatus.PREPARING
+        setState(current.copy(messages = next, isLoading = true, requestStatus = ChatRequestStatus.PREPARING, notice = null))
         activeUserIndex = userIndex
         activeAssistantIndex = null
-        sendJob = scope.launch { runRequest(history, userIndex, null) }
+        val requestId = ++requestGeneration
+        sendJob = scope.launch { runRequest(requestId, current.activeSessionId, history, userIndex, null) }
     }
 
-    private suspend fun runRequest(history: List<ChatMessage>, userIndex: Int, assistantIndex: Int?) {
+    private suspend fun runRequest(requestId: Long, sessionId: String, history: List<ChatMessage>, userIndex: Int, assistantIndex: Int?) {
+        if (!isCurrentRequest(requestId, sessionId)) return
+        requestStatusBySession[sessionId] = ChatRequestStatus.REQUESTING
+        setState(_state.copy(requestStatus = ChatRequestStatus.REQUESTING))
         persistAll()
-        val result = try { provider.complete(history) }
+        val result = try {
+            provider.complete(history) { phase ->
+                val status = when (phase) {
+                    AiRequestPhase.REQUESTING -> ChatRequestStatus.REQUESTING
+                    AiRequestPhase.RECEIVING_REPLY -> ChatRequestStatus.RECEIVING_REPLY
+                }
+                scope.launch {
+                    if (isCurrentRequest(requestId, sessionId)) {
+                        requestStatusBySession[sessionId] = status
+                        setState(_state.copy(requestStatus = status))
+                    }
+                }
+            }
+        }
         catch (_: kotlinx.coroutines.CancellationException) { return }
-        catch (_: Exception) { AppResult.failure(AppError.Unknown("请求失败，请重试")) }
+        catch (_: Exception) { AppResult.failure(AppError.Unknown("请求失败，请检查网络或服务配置后重试")) }
+        if (!isCurrentRequest(requestId, sessionId)) return
         val messages = _state.messages.toMutableList()
         var notice: String? = null
+        var finalStatus = ChatRequestStatus.COMPLETED
         when (result) {
             is AppResult.Success -> {
                 messages[userIndex] = messages[userIndex].copy(status = MessageStatus.SENT)
@@ -167,22 +200,32 @@ class ChatViewModel(
             is AppResult.Failure -> {
                 if (assistantIndex == null) messages[userIndex] = messages[userIndex].copy(status = if (result.error is AppError.Cancelled) MessageStatus.CANCELLED else MessageStatus.FAILED)
                 notice = result.error.toUserMessage()
+                finalStatus = if (result.error is AppError.Cancelled) ChatRequestStatus.CANCELLED else ChatRequestStatus.FAILED
             }
         }
-        setState(_state.copy(messages = messages, isLoading = false, notice = notice))
+        requestStatusBySession[sessionId] = finalStatus
+        setState(_state.copy(messages = messages, isLoading = false, requestStatus = finalStatus, notice = notice))
         persistCurrent(showError = notice == null)
         activeUserIndex = null; activeAssistantIndex = null; sendJob = null
     }
 
     fun cancel() {
+        stopActiveRequest(showNotice = true)
+        persistAll()
+    }
+
+    private fun stopActiveRequest(showNotice: Boolean) {
+        if (!_state.isLoading) return
         val userIndex = activeUserIndex
         val assistant = activeAssistantIndex
+        requestGeneration++
         sendJob?.cancel(); sendJob = null
         activeUserIndex = null; activeAssistantIndex = null
         val messages = _state.messages.toMutableList()
         if (assistant == null && userIndex != null && userIndex in messages.indices) messages[userIndex] = messages[userIndex].copy(status = MessageStatus.CANCELLED)
-        setState(_state.copy(messages = messages, isLoading = false, notice = "已取消请求"))
-        persistAll()
+        requestStatusBySession[_state.activeSessionId] = ChatRequestStatus.CANCELLED
+        setState(_state.copy(messages = messages, isLoading = false, requestStatus = ChatRequestStatus.CANCELLED, notice = if (showNotice) "已取消请求" else null))
+        syncActiveMessages(messages)
     }
 
     fun clear() {
@@ -194,8 +237,12 @@ class ChatViewModel(
     private fun showSession(data: ChatSessionData) = setState(_state.copy(
         activeSessionId = data.session.id, sessionTitle = data.session.title,
         messages = data.messages.map { ChatBubble(it.role, it.content, if (it.status == MessageStatus.GENERATING) MessageStatus.FAILED else it.status) },
-        sessions = sessionData.map { it.session }, inputText = "", notice = null,
+        sessions = sessionData.map { it.session }, inputText = "", notice = null, isLoading = false,
+        requestStatus = requestStatusBySession[data.session.id] ?: statusForMessages(data.messages.map { ChatBubble(it.role, it.content, if (it.status == MessageStatus.GENERATING) MessageStatus.FAILED else it.status) }),
     ))
+
+    private fun isCurrentRequest(requestId: Long, sessionId: String): Boolean =
+        requestId == requestGeneration && sessionId == _state.activeSessionId && _state.isLoading
 
     private fun updateSessionTitle(id: String, title: String) {
         val i = sessionData.indexOfFirst { it.session.id == id }
@@ -230,13 +277,16 @@ class ChatViewModel(
 
     companion object {
         fun errorToUserMessage(e: AppError): String = when (e) {
-            is AppError.Network -> "网络错误：${e.message ?: "连接失败或超时"}"
-            is AppError.Auth -> "鉴权失败：请检查 API Key 是否有效"
-            is AppError.RateLimited -> "请求过于频繁，请稍后重试"
-            is AppError.Server -> "服务端错误：${e.message ?: "未知"}"
-            is AppError.Parse -> "响应解析失败：${e.message ?: "格式异常"}"
+            is AppError.Network -> if (e.kind == com.tim.futureai.core.common.NetworkFailureKind.TIMEOUT) "网络请求超时，请检查网络后重试" else "网络连接失败，请检查网络或 Base URL 后重试"
+            is AppError.Configuration -> "AI 配置无效，请检查 Base URL、Model 和 API Key"
+            is AppError.Auth -> "鉴权失败（HTTP ${e.httpCode ?: 401}），请检查 API Key 后重试"
+            is AppError.RateLimited -> "请求过于频繁（HTTP ${e.httpCode ?: 429}），请稍后重试"
+            is AppError.ModelUnavailable -> "模型不可用（HTTP ${e.httpCode}），请检查 Model 名称"
+            is AppError.Http -> "API 请求失败（HTTP ${e.httpCode}），请检查配置后重试"
+            is AppError.Server -> "AI 服务端错误${e.httpCode?.let { "（HTTP $it）" }.orEmpty()}，请稍后重试"
+            is AppError.Parse -> "响应解析失败，请确认服务返回 OpenAI-compatible 格式"
             is AppError.Cancelled -> "请求已取消"
-            is AppError.Unknown -> e.message ?: "未知错误"
+            is AppError.Unknown -> "请求失败，请检查网络或服务配置后重试"
         }
     }
 }

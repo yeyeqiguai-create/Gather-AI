@@ -28,6 +28,7 @@ feature ──▶ domain ◀── data
 - `data.chat.FileChatSessionsRepository` 使用应用私有目录中的版本化 JSON 文件持久化会话；读写通过 IO dispatcher 执行。旧版 `chat-history.json` 只读迁移至新格式，源文件保留；迁移失败不会覆盖源数据。旧消息缺少发送状态时按成功消息读取。
 - `ChatSession.isPinned` 持久化于现有 v2 会话 JSON；读取缺少该字段的历史记录时默认为未置顶，不改变旧消息。界面排序为展示层计算：置顶优先，其余按最近活动或创建时间倒序，不重排存储数据。
 - `feature.chat.ChatMarkdown` 是纯 Kotlin 的受限 Markdown 区块解析器；Compose 只将解析后的文本和代码块作为文本绘制，不解释 HTML 或加载远程资源。代码块复制使用代码原文独立写入剪贴板。
+- AI 请求状态由 `domain.ai.AiRequestPhase` 与 `feature.chat.ChatRequestStatus` 分层表达；Provider 负责报告请求/响应阶段，`AppError` 统一区分连接、超时、配置、模型、HTTP、鉴权、限流、服务端和解析错误。每次请求带代次与会话 ID，切换会话取消旧请求并丢弃迟到结果。
 - 聊天记录不包含 AI 配置、API Key 或 Authorization Header；API 凭据仍只由 `SecureKeyStore` 管理。
 
 - `feature → domain`：界面只调用用例/模型。

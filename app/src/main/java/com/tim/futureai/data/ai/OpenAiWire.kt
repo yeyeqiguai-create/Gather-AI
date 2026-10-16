@@ -36,8 +36,10 @@ object OpenAiWire {
             ?: throw ResponseParseException("Empty choices")
         val message = first.entries["message"]?.asObject()
             ?: throw ResponseParseException("Missing message object")
-        return message.entries["content"]?.asString()
+        val content = message.entries["content"]?.asString()
             ?: throw ResponseParseException("Missing message content")
+        if (content.isBlank()) throw ResponseParseException("Empty assistant response")
+        return content
     }
 
     /** 从错误响应体提取可读信息；失败返回原始截断文本。 */

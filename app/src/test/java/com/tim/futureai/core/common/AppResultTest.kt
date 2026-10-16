@@ -76,7 +76,8 @@ class AppResultTest {
 
     @Test
     fun toAppError_mapsTimeoutToNetwork() {
-        assertTrue(TimeoutException().toAppError() is AppError.Network)
+        val error = TimeoutException().toAppError() as AppError.Network
+        assertEquals(NetworkFailureKind.TIMEOUT, error.kind)
     }
 
     @Test

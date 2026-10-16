@@ -3,13 +3,30 @@ package com.tim.futureai.core.common
 /**
  * 统一错误模型（纯 Kotlin，供 domain/data/platform 复用）。
  *
- * 可区分：网络、鉴权、限流、服务端、解析、未知。
+ * 可区分：连接/超时、配置、HTTP、模型、鉴权、限流、服务端、解析和未知错误。
  */
+enum class NetworkFailureKind { CONNECTION, TIMEOUT }
+
 sealed class AppError : Throwable() {
 
     /** 网络错误：连接失败、超时、无网络等。 */
     data class Network(
         override val message: String? = null,
+        override val cause: Throwable? = null,
+        val kind: NetworkFailureKind = NetworkFailureKind.CONNECTION,
+    ) : AppError()
+
+    data class Configuration(override val message: String, override val cause: Throwable? = null) : AppError()
+
+    data class ModelUnavailable(
+        override val message: String,
+        val httpCode: Int,
+        override val cause: Throwable? = null,
+    ) : AppError()
+
+    data class Http(
+        override val message: String,
+        val httpCode: Int,
         override val cause: Throwable? = null,
     ) : AppError()
 
@@ -17,6 +34,7 @@ sealed class AppError : Throwable() {
     data class Auth(
         override val message: String? = null,
         override val cause: Throwable? = null,
+        val httpCode: Int? = null,
     ) : AppError()
 
     /** 限流：HTTP 429 或 provider 自定义限流。 */
@@ -25,6 +43,7 @@ sealed class AppError : Throwable() {
         override val cause: Throwable? = null,
         /** 重试等待秒数，来自 Retry-After；无则为 null。 */
         val retryAfterSeconds: Long? = null,
+        val httpCode: Int? = 429,
     ) : AppError()
 
     /** 服务端错误：HTTP 5xx 等。 */
@@ -58,8 +77,9 @@ sealed class AppError : Throwable() {
 fun Throwable.toAppError(): AppError = when (this) {
     is AppError -> this
     is kotlinx.coroutines.CancellationException -> AppError.Cancelled
+    is java.net.SocketTimeoutException -> AppError.Network(message, this, NetworkFailureKind.TIMEOUT)
+    is java.util.concurrent.TimeoutException -> AppError.Network(message, this, NetworkFailureKind.TIMEOUT)
     is java.io.IOException -> AppError.Network(message, this)
-    is java.util.concurrent.TimeoutException -> AppError.Network(message, this)
     else -> AppError.Unknown(message ?: "Unexpected error", this)
 }
 

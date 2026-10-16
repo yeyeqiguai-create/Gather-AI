@@ -2,7 +2,9 @@ package com.tim.futureai.data.ai
 
 import com.tim.futureai.core.common.AppError
 import com.tim.futureai.core.common.AppResult
+import com.tim.futureai.core.common.NetworkFailureKind
 import com.tim.futureai.domain.ai.AiChatConfig
+import com.tim.futureai.domain.ai.AiRequestPhase
 import com.tim.futureai.domain.model.ChatMessage
 import com.tim.futureai.domain.model.MessageRole
 import kotlinx.coroutines.async
@@ -20,6 +22,7 @@ import java.nio.charset.StandardCharsets
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.CopyOnWriteArrayList
 
 class OpenAiCompatProviderTest {
     private val apiKey = "test-key-do-not-log"
@@ -34,12 +37,23 @@ class OpenAiCompatProviderTest {
         assertTrue(server.request.get().contains("\"content\":\"hello\""))
     }
 
+    @Test fun complete_reportsRequestAndReplyPhases() = mockResponse(200, """{"choices":[{"message":{"content":"reply"}}]}""") { server ->
+        val phases = CopyOnWriteArrayList<AiRequestPhase>()
+        val result = runBlocking { provider(server).complete(messages) { phases += it } }
+        assertTrue(result is AppResult.Success)
+        assertEquals(listOf(AiRequestPhase.REQUESTING, AiRequestPhase.RECEIVING_REPLY), phases.toList())
+    }
+
     @Test fun complete_maps401WithoutExposingApiKey() = assertHttpError(401, """{"error":{"message":"invalid key $apiKey"}}""") { error ->
         assertTrue(error is AppError.Auth)
+        assertEquals(401, (error as AppError.Auth).httpCode)
         assertFalse(error.message.orEmpty().contains(apiKey))
     }
 
-    @Test fun complete_maps429() = assertHttpError(429, """{"error":{"message":"slow down"}}""") { assertTrue(it is AppError.RateLimited) }
+    @Test fun complete_maps429() = assertHttpError(429, """{"error":{"message":"slow down"}}""") {
+        assertTrue(it is AppError.RateLimited)
+        assertEquals(429, (it as AppError.RateLimited).httpCode)
+    }
 
     @Test fun complete_maps5xxAndRedactsEchoedKey() = assertHttpError(503, "upstream rejected $apiKey") { error ->
         assertTrue(error is AppError.Server)
@@ -57,8 +71,9 @@ class OpenAiCompatProviderTest {
         val port = socket.localPort
         socket.close()
         val result = runBlocking { provider("http://127.0.0.1:$port").complete(messages) }
-        assertTrue((result as AppResult.Failure).error is AppError.Network)
-        assertFalse(result.error.message.orEmpty().contains(apiKey))
+        val error = (result as AppResult.Failure).error as AppError.Network
+        assertEquals(NetworkFailureKind.CONNECTION, error.kind)
+        assertFalse(error.message.orEmpty().contains(apiKey))
     }
 
     @Test fun complete_mapsReadTimeoutToNetworkError() {
@@ -74,10 +89,37 @@ class OpenAiCompatProviderTest {
                     readTimeoutMs = 100,
                 ).complete(messages)
             }
-            assertTrue((result as AppResult.Failure).error is AppError.Network)
+            val error = (result as AppResult.Failure).error as AppError.Network
+            assertEquals(NetworkFailureKind.TIMEOUT, error.kind)
         } finally {
             server.close()
         }
+    }
+
+    @Test fun complete_mapsInvalidBaseUrlToConfigurationErrorWithoutEchoingConfig() {
+        val result = runBlocking {
+            OpenAiCompatProvider({ AiChatConfig("not a url $apiKey", "mock-model", apiKey) }).complete(messages)
+        }
+        val error = (result as AppResult.Failure).error
+        assertTrue(error is AppError.Configuration)
+        assertFalse(error.message.orEmpty().contains(apiKey))
+    }
+
+    @Test fun complete_mapsModelNotFoundWithHttpDiagnostic() = assertHttpError(404, """{"error":{"message":"The model was not found"}}""") { error ->
+        assertTrue(error is AppError.ModelUnavailable)
+        assertEquals(404, (error as AppError.ModelUnavailable).httpCode)
+    }
+
+    @Test fun complete_mapsOther4xxWithHttpDiagnosticAndRedactsCredentials() = assertHttpError(400, "invalid request Authorization: Bearer $apiKey") { error ->
+        assertTrue(error is AppError.Http)
+        assertEquals(400, (error as AppError.Http).httpCode)
+        assertFalse(error.message.orEmpty().contains(apiKey))
+        assertFalse(error.message.orEmpty().contains("Authorization"))
+    }
+
+    @Test fun completeRedactsKeyBeforeDiagnosticTruncation() {
+        val body = "x".repeat(195) + apiKey
+        assertHttpError(400, body) { error -> assertFalse(error.message.orEmpty().contains(apiKey)) }
     }
 
     @Test fun cancellingInFlightRequestDisconnectsMockConnection() = runBlocking {
