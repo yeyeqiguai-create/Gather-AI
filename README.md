@@ -68,3 +68,11 @@ The project license has not yet been specified. Please check the repository for 
 - Beta 使用 `gradlew.bat assembleRelease -Pgather.releaseChannel=beta`，APK 文件名带 `beta` 标记。
 - 正式测试使用 `gradlew.bat assembleRelease`，默认 APK 文件名带 `formal-test` 标记。也可显式指定 `-Pgather.releaseChannel=formal-test`。
 - Beta 和正式测试共用现有 release 构建，不增加构建变体；渠道属性只区分产物文件名。当前未配置 release 签名，产物签名与分发准备仍需单独处理，签名密钥不得提交到仓库。
+
+## 应用内更新协议
+
+- 客户端先读取 GitHub Releases API；兼容标签格式为 `vX.X.X.XX-ReviseN[-internal-dev]`。内部开发版保留 GitHub Pre-release 标记。
+- Release 正文必须包含用户更新说明，并在隐藏的 `<div hidden>` 中提供 `versionCode: N`，供旧客户端识别；新客户端解析后不会把该字段展示为更新说明。
+- 每个版本只上传一个 `.apk`，并同时上传 `update.json`。旧客户端忽略 JSON 文件，仍从 Release 正文、APK 资源和 GitHub SHA-256 digest 检查更新。
+- 新客户端通过该 Release 的长期资源地址读取 `update.json`：`https://github.com/yeyeqiguai-create/Gather-AI/releases/download/<tag>/update.json`。其中包含 `versionName`、`versionCode`、`releaseNotes`、`apkUrl`、`sha256`；客户端会与 Release 标签、正文及 APK 资源交叉校验。
+- 没有 `update.json` 的历史 Release 使用兼容解析；元数据不匹配、APK 缺失或校验信息无效时不会允许安装。

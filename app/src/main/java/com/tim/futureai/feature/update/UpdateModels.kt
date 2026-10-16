@@ -25,7 +25,7 @@ data class AppVersion(
 
 enum class ReleaseChannel(val label: String) { FORMAL("正式版"), INTERNAL_DEV("内部开发") }
 
-data class ApkAsset(val fileName: String, val downloadUrl: String, val sha256: String)
+data class ApkAsset(val fileName: String, val downloadUrl: String, val sha256: String, val sizeBytes: Long? = null)
 
 data class UpdateRelease(
     val tag: String,
@@ -37,7 +37,57 @@ data class UpdateRelease(
     val publishedAt: String,
     val isPrerelease: Boolean,
     val apk: ApkAsset?,
+    val metadataUrl: String? = null,
 )
+
+data class RejectedRelease(
+    val version: AppVersion,
+    val tag: String,
+    val reason: String,
+    val channel: ReleaseChannel,
+    val isPrerelease: Boolean,
+)
+
+data class UpdateMetadata(
+    val versionName: String,
+    val versionCode: Int,
+    val releaseNotes: String,
+    val apkUrl: String,
+    val sha256: String,
+)
+
+data class UpdatePromptState(val release: UpdateRelease, val showFullNotes: Boolean = false)
+
+enum class UpdatePromptAction { START_UPDATE, LATER, VIEW_NOTES }
+
+object UpdatePromptReducer {
+    fun reduce(state: UpdatePromptState, action: UpdatePromptAction): UpdatePromptState? = when (action) {
+        UpdatePromptAction.VIEW_NOTES -> state.copy(showFullNotes = true)
+        UpdatePromptAction.START_UPDATE, UpdatePromptAction.LATER -> null
+    }
+}
+
+class UpdateCheckGate {
+    private var active = false
+
+    @Synchronized fun tryStart(): Boolean {
+        if (active) return false
+        active = true
+        return true
+    }
+
+    @Synchronized fun finish() { active = false }
+}
+
+class StartupUpdateCheck {
+    private var checked = false
+
+    @Synchronized fun shouldCheck(): Boolean {
+        if (checked) return false
+        checked = true
+        return true
+    }
+}
 
 sealed interface UpdateCheckResult {
     data class Available(val release: UpdateRelease) : UpdateCheckResult

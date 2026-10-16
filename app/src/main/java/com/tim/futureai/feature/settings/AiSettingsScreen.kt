@@ -74,6 +74,7 @@ fun AiSettingsScreen(
     onDownloadUpdate: () -> Unit = {},
     onCancelDownload: () -> Unit = {},
     onInstallUpdate: () -> Unit = {},
+    onViewUpdateNotes: () -> Unit = {},
     profiles: List<AiSettings> = emptyList(),
     onSelectProfile: (String) -> Unit = {},
     onCreateProfile: () -> Unit = {},
@@ -277,6 +278,7 @@ fun AiSettingsScreen(
                     onDownload = onDownloadUpdate,
                     onCancel = onCancelDownload,
                     onInstall = onInstallUpdate,
+                    onViewNotes = onViewUpdateNotes,
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).padding(14.dp),

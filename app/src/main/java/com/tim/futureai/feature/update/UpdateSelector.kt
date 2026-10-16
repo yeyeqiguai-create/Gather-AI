@@ -6,6 +6,7 @@ object UpdateSelector {
         currentVersionName: String,
         currentVersionCode: Int,
         mode: UpdateCheckMode,
+        rejected: List<RejectedRelease> = emptyList(),
     ): UpdateCheckResult {
         val current = AppVersion.parse(currentVersionName, currentVersionCode)
             ?: return UpdateCheckResult.InvalidMetadata("当前应用版本信息无效")
@@ -15,7 +16,17 @@ object UpdateSelector {
             .filter { it.channel == ReleaseChannel.FORMAL || mode == UpdateCheckMode.INTERNAL_DEV }
             .sortedWith(compareByDescending<UpdateRelease> { it.version }.thenByDescending { it.versionCode })
             .toList()
-        val newest = eligible.firstOrNull() ?: return UpdateCheckResult.UpToDate
+        val newest = eligible.firstOrNull()
+        val newerInvalid = rejected.asSequence()
+            .filter { it.version.major == 0 && it.version.minor == 1 }
+            .filter { mode == UpdateCheckMode.INTERNAL_DEV || !it.isPrerelease }
+            .filter { it.channel == ReleaseChannel.FORMAL || mode == UpdateCheckMode.INTERNAL_DEV }
+            .filter { it.version > current && (newest == null || it.version > newest.version) }
+            .maxByOrNull { it.version }
+        if (newerInvalid != null) return UpdateCheckResult.InvalidMetadata(
+            "发现较新版本 ${newerInvalid.tag}，但其更新信息无效：${newerInvalid.reason}",
+        )
+        newest ?: return UpdateCheckResult.UpToDate
         val versionOrder = newest.version.compareTo(current)
         if (versionOrder == 0 && newest.versionCode <= currentVersionCode) return UpdateCheckResult.UpToDate
         if (versionOrder < 0 || newest.versionCode <= currentVersionCode) return UpdateCheckResult.InvalidMetadata(

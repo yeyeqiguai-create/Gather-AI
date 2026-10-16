@@ -3,22 +3,30 @@ package com.tim.futureai
 import android.content.Intent
 import android.os.Bundle
 import android.os.Build
-import android.os.SystemClock
 import android.net.Uri
 import android.provider.Settings
 import android.speech.RecognizerIntent
 import androidx.activity.ComponentActivity
+import android.animation.ValueAnimator
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.LaunchedEffect
@@ -37,6 +45,12 @@ import com.tim.futureai.data.chat.FileChatSessionsRepository
 import com.tim.futureai.data.update.GitHubUpdateRepository
 import com.tim.futureai.data.usage.FileUsageRepository
 import com.tim.futureai.feature.update.UpdateCheckResult
+import com.tim.futureai.feature.update.UpdateCheckGate
+import com.tim.futureai.feature.update.UpdatePromptAction
+import com.tim.futureai.feature.update.UpdatePromptReducer
+import com.tim.futureai.feature.update.UpdatePromptState
+import com.tim.futureai.feature.update.UpdateRelease
+import com.tim.futureai.feature.update.StartupUpdateCheck
 import com.tim.futureai.domain.ai.AiChatConfig
 import com.tim.futureai.feature.chat.ChatScreen
 import com.tim.futureai.feature.chat.ChatUiState
@@ -127,8 +141,16 @@ class MainActivity : ComponentActivity() {
                 var downloadProgress by remember { mutableStateOf<Int?>(null) }
                 var downloadedApk by remember { mutableStateOf<File?>(null) }
                 var downloadJob by remember { mutableStateOf<Job?>(null) }
+                var updatePrompt by remember { mutableStateOf<UpdatePromptState?>(null) }
+                val updateCheckGate = remember { UpdateCheckGate() }
+                val startupUpdateCheck = remember { StartupUpdateCheck() }
                 var speakingMessageKey by remember { mutableStateOf<String?>(null) }
                 val composeScope = rememberCoroutineScope()
+                val screenTransitionMillis = remember {
+                    val motionEnabled = if (Build.VERSION.SDK_INT >= 26) ValueAnimator.areAnimatorsEnabled()
+                    else Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f
+                    if (motionEnabled) 180 else 0
+                }
                 val speechController = remember {
                     SpeechController(applicationContext,
                         onSpeakingChanged = { key -> composeScope.launch(Dispatchers.Main) { speakingMessageKey = key } },
@@ -163,28 +185,66 @@ class MainActivity : ComponentActivity() {
                         withContext(Dispatchers.Main) { viewModel.addAttachments(imported) }
                     }
                 }
-                val lastUpdateCheck = remember { mutableLongStateOf(0L) }
                 val checkForUpdates: () -> Unit = {
-                    val now = SystemClock.elapsedRealtime()
-                    when {
-                        updateChecking -> Unit
-                        lastUpdateCheck.longValue != 0L && now - lastUpdateCheck.longValue < 60_000L ->
-                            updateMessage = "刚检查过更新，请稍后再试"
-                        else -> {
-                            lastUpdateCheck.longValue = now
-                            updateChecking = true
-                            updateMessage = null
-                            composeScope.launch {
+                    if (updateCheckGate.tryStart()) {
+                        updateChecking = true
+                        updateMessage = null
+                        composeScope.launch {
+                            try {
                                 updateResult = updateRepository.check()
+                                (updateResult as? UpdateCheckResult.Available)?.let { updatePrompt = UpdatePromptState(it.release) }
+                            } finally {
+                                updateCheckGate.finish()
                                 updateChecking = false
                             }
                         }
                     }
                 }
-                LaunchedEffect(Unit) { checkForUpdates() }
+                LaunchedEffect(Unit) { if (startupUpdateCheck.shouldCheck()) checkForUpdates() }
+                val installDownloadedApk: () -> Unit = {
+                    val apk = downloadedApk
+                    if (apk != null && Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
+                        startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+                        updateMessage = "请允许 Gather AI 安装未知应用，返回后再次点击安装"
+                        showSettings = true
+                    } else if (apk != null) runCatching {
+                        val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.fileprovider", apk)
+                        startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
+                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }.onFailure { updateMessage = "无法启动系统安装器，请重试" }
+                }
+                fun startUpdateDownload(release: UpdateRelease, installWhenReady: Boolean) {
+                    if (installWhenReady) {
+                        settings = settingsManager.load()
+                        profiles = settingsManager.profiles()
+                        isAiConfigured = settings.isConfigured
+                        composeScope.launch { usage = usageRepository.load() }
+                        showSettings = true
+                    }
+                    downloadProgress = 0
+                    updateMessage = "正在下载并校验 APK…"
+                    downloadJob = composeScope.launch {
+                        try {
+                            downloadedApk = updateRepository.downloadAndVerify(this@MainActivity, release) { progress ->
+                                composeScope.launch { downloadProgress = progress }
+                            }
+                            downloadProgress = 100
+                            updateMessage = "SHA-256 与签名校验通过"
+                            if (installWhenReady) installDownloadedApk()
+                        } catch (_: CancellationException) {
+                            downloadProgress = null
+                            updateMessage = "下载已取消"
+                        } catch (error: Exception) {
+                            downloadProgress = null
+                            updateMessage = error.message ?: "APK 下载或校验失败，可立即重试"
+                            if (installWhenReady) showSettings = true
+                        }
+                    }
+                }
                 viewModel.onStateChanged = { uiState = it }
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    if (showSettings) {
+                    Crossfade(targetState = showSettings, animationSpec = tween(screenTransitionMillis), label = "main-settings-transition") { showingSettings ->
+                    if (showingSettings) {
                         AiSettingsScreen(
                             settings = settings,
                             message = settingsMessage,
@@ -218,35 +278,12 @@ class MainActivity : ComponentActivity() {
                             onCheckUpdates = checkForUpdates,
                             onDownloadUpdate = {
                                 val release = (updateResult as? UpdateCheckResult.Available)?.release ?: return@AiSettingsScreen
-                                downloadProgress = 0
-                                updateMessage = "正在下载并校验 APK…"
-                                downloadJob = composeScope.launch {
-                                    try {
-                                        downloadedApk = updateRepository.downloadAndVerify(this@MainActivity, release) { progress ->
-                                            composeScope.launch { downloadProgress = progress }
-                                        }
-                                        downloadProgress = 100
-                                        updateMessage = "SHA-256 与签名校验通过"
-                                    } catch (_: CancellationException) {
-                                        downloadProgress = null
-                                        updateMessage = "下载已取消"
-                                    } catch (error: Exception) {
-                                        downloadProgress = null
-                                        updateMessage = error.message ?: "APK 下载或校验失败，可重试"
-                                    }
-                                }
+                                startUpdateDownload(release, installWhenReady = false)
                             },
                             onCancelDownload = { downloadJob?.cancel() },
-                            onInstallUpdate = {
-                                val apk = downloadedApk ?: return@AiSettingsScreen
-                                if (Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
-                                    startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
-                                    updateMessage = "请允许 Gather AI 安装未知应用，返回后再次点击安装"
-                                } else runCatching {
-                                    val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.fileprovider", apk)
-                                    startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
-                                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
-                                }.onFailure { updateMessage = "无法启动系统安装器，请重试" }
+                            onInstallUpdate = installDownloadedApk,
+                            onViewUpdateNotes = {
+                                (updateResult as? UpdateCheckResult.Available)?.let { updatePrompt = UpdatePromptState(it.release, showFullNotes = true) }
                             },
                             profiles = profiles,
                             onSelectProfile = { id ->
@@ -372,6 +409,40 @@ class MainActivity : ComponentActivity() {
                         },
                         isAiConfigured = isAiConfigured,
                         modifier = Modifier.fillMaxSize(),
+                    )
+                    }
+                }
+                updatePrompt?.let { prompt ->
+                    AlertDialog(
+                        onDismissRequest = { updatePrompt = UpdatePromptReducer.reduce(prompt, UpdatePromptAction.LATER) },
+                        title = { Text(if (prompt.showFullNotes) "${prompt.release.versionName} 更新内容" else "发现新版本 ${prompt.release.versionName}") },
+                        text = {
+                            androidx.compose.foundation.layout.Column(
+                                Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                            ) {
+                                Text("${prompt.release.channel.label} · ${prompt.release.publishedAt.take(10).ifBlank { "发布日期未知" }}")
+                                if (prompt.showFullNotes) {
+                                    if (prompt.release.notes.isBlank()) Text("此版本没有附带更新说明")
+                                    else Text(prompt.release.notes)
+                                } else {
+                                    Text(prompt.release.notes.take(500).ifBlank { "此版本包含修复和改进" })
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                updatePrompt = UpdatePromptReducer.reduce(prompt, UpdatePromptAction.START_UPDATE)
+                                startUpdateDownload(prompt.release, installWhenReady = true)
+                            }) { Text("立即更新") }
+                        },
+                        dismissButton = {
+                            androidx.compose.foundation.layout.Row {
+                                TextButton(onClick = {
+                                    updatePrompt = UpdatePromptReducer.reduce(prompt, UpdatePromptAction.VIEW_NOTES)
+                                }) { Text(if (prompt.showFullNotes) "更新说明" else "查看更新内容") }
+                                TextButton(onClick = { updatePrompt = UpdatePromptReducer.reduce(prompt, UpdatePromptAction.LATER) }) { Text("稍后") }
+                            }
+                        },
                     )
                 }
             }
