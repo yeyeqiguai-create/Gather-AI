@@ -24,12 +24,12 @@ private fun materials(
         edgeHighlight = edge, edgeAlpha = edgeAlpha * 0.55f, specularAlpha = 0.10f, refractionBandDp = 0f,
     ),
     GlassMaterial.FROSTED to LiquidMaterialSpec(
-        blurDp = 22f * blurScale, tint = glassTint, tintAlpha = glassTintAlpha,
-        edgeHighlight = edge, edgeAlpha = edgeAlpha, specularAlpha = 0.16f, refractionBandDp = 0f,
+        blurDp = 22f * blurScale, tint = glassTint, tintAlpha = glassTintAlpha * 0.92f,
+        edgeHighlight = edge, edgeAlpha = edgeAlpha, specularAlpha = 0.16f, refractionBandDp = 10f,
     ),
     GlassMaterial.LIQUID to LiquidMaterialSpec(
-        blurDp = 18f * blurScale, tint = glassTint, tintAlpha = glassTintAlpha * 0.72f,
-        edgeHighlight = edge, edgeAlpha = (edgeAlpha * 1.5f).coerceAtMost(1f), specularAlpha = 0.26f, refractionBandDp = 14f,
+        blurDp = 18f * blurScale, tint = glassTint, tintAlpha = glassTintAlpha * 0.55f,
+        edgeHighlight = edge, edgeAlpha = (edgeAlpha * 1.5f).coerceAtMost(1f), specularAlpha = 0.26f, refractionBandDp = 20f,
     ),
     GlassMaterial.DARK to LiquidMaterialSpec(
         blurDp = 26f * blurScale, tint = darkTint, tintAlpha = 0.66f,

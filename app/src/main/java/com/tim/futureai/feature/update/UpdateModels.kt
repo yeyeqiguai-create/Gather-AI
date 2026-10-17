@@ -67,16 +67,29 @@ object UpdatePromptReducer {
     }
 }
 
-class UpdateCheckGate {
+class UpdateCheckGate(
+    private val clock: () -> Long = { System.currentTimeMillis() },
+    private val cooldownMs: Long = 30_000L,
+) {
     private var active = false
+    private var lastFinishedAt = 0L
 
+    /** In-flight checks are blocked; finished checks unblock once the cooldown elapses. */
     @Synchronized fun tryStart(): Boolean {
         if (active) return false
+        val now = clock()
+        if (lastFinishedAt != 0L && now - lastFinishedAt < cooldownMs) return false
         active = true
         return true
     }
 
-    @Synchronized fun finish() { active = false }
+    @Synchronized fun finish(success: Boolean = false) {
+        active = false
+        lastFinishedAt = clock()
+    }
+
+    /** Clears all state (e.g. after app restart or explicit reset). */
+    @Synchronized fun reset() { active = false; lastFinishedAt = 0L }
 }
 
 class StartupUpdateCheck {

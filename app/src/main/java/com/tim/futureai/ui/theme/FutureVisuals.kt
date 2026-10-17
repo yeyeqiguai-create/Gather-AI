@@ -210,6 +210,112 @@ fun FutureGlyph(
                 line(12f, 17f, 12f, 21f, 1.8f)
                 line(8.5f, 21f, 15.5f, 21f, 1.8f)
             }
+            "chat" -> {
+                val path = Path().apply {
+                    moveTo(4f * unit, 5f * unit)
+                    lineTo(20f * unit, 5f * unit)
+                    lineTo(20f * unit, 16f * unit)
+                    lineTo(9f * unit, 16f * unit)
+                    lineTo(5f * unit, 20f * unit)
+                    lineTo(5f * unit, 16f * unit)
+                    lineTo(4f * unit, 16f * unit)
+                    close()
+                }
+                drawPath(path, tint, style = Stroke(1.7f * unit, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+            }
+            "route" -> {
+                drawCircle(tint, 3f * unit, center = point(5f, 19f), style = Stroke(1.7f * unit))
+                drawCircle(tint, 3f * unit, center = point(19f, 5f), style = Stroke(1.7f * unit))
+                val path = Path().apply {
+                    moveTo(7.5f * unit, 17f * unit)
+                    cubicTo(13f * unit, 15f * unit, 11f * unit, 9f * unit, 16.5f * unit, 7f * unit)
+                }
+                drawPath(path, tint, style = Stroke(1.7f * unit, cap = StrokeCap.Round))
+            }
+            "chart" -> {
+                line(4f, 20f, 20f, 20f, 1.7f)
+                line(7f, 20f, 7f, 13f, 1.7f)
+                line(12f, 20f, 12f, 8f, 1.7f)
+                line(17f, 20f, 17f, 15f, 1.7f)
+            }
+            "attach" -> {
+                val path = Path().apply {
+                    moveTo(16.5f * unit, 8f * unit)
+                    lineTo(16.5f * unit, 16f * unit)
+                    cubicTo(16.5f * unit, 19f * unit, 7.5f * unit, 19f * unit, 7.5f * unit, 16f * unit)
+                    lineTo(7.5f * unit, 7f * unit)
+                    cubicTo(7.5f * unit, 4.5f * unit, 14f * unit, 4.5f * unit, 14f * unit, 7f * unit)
+                    lineTo(14f * unit, 15f * unit)
+                    cubicTo(14f * unit, 16.5f * unit, 10f * unit, 16.5f * unit, 10f * unit, 15f * unit)
+                    lineTo(10f * unit, 9f * unit)
+                }
+                drawPath(path, tint, style = Stroke(1.6f * unit, cap = StrokeCap.Round))
+            }
+            "download" -> {
+                line(12f, 4f, 12f, 15f, 1.8f)
+                line(12f, 15f, 7.5f, 10.5f, 1.8f)
+                line(12f, 15f, 16.5f, 10.5f, 1.8f)
+                line(5f, 19.5f, 19f, 19.5f, 1.8f)
+            }
+            "database" -> {
+                drawOval(tint, topLeft = point(5f, 4f), size = androidx.compose.ui.geometry.Size(14f * unit, 6f * unit), style = Stroke(1.7f * unit))
+                val path = Path().apply {
+                    moveTo(5f * unit, 7f * unit)
+                    lineTo(5f * unit, 17f * unit)
+                    cubicTo(5f * unit, 20f * unit, 19f * unit, 20f * unit, 19f * unit, 17f * unit)
+                    lineTo(19f * unit, 7f * unit)
+                }
+                drawPath(path, tint, style = Stroke(1.7f * unit))
+                line(5f, 12f, 19f, 12f, 1.4f)
+            }
+            "pulse" -> {
+                val path = Path().apply {
+                    moveTo(3f * unit, 12f * unit)
+                    lineTo(7f * unit, 12f * unit)
+                    lineTo(9.5f * unit, 6f * unit)
+                    lineTo(13f * unit, 18f * unit)
+                    lineTo(15.5f * unit, 12f * unit)
+                    lineTo(21f * unit, 12f * unit)
+                }
+                drawPath(path, tint, style = Stroke(1.8f * unit, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+            }
+            "star" -> {
+                val path = Path().apply {
+                    moveTo(12f * unit, 3f * unit)
+                    lineTo(14.6f * unit, 9f * unit)
+                    lineTo(21f * unit, 9.6f * unit)
+                    lineTo(16f * unit, 13.8f * unit)
+                    lineTo(17.6f * unit, 20.5f * unit)
+                    lineTo(12f * unit, 16.8f * unit)
+                    lineTo(6.4f * unit, 20.5f * unit)
+                    lineTo(8f * unit, 13.8f * unit)
+                    lineTo(3f * unit, 9.6f * unit)
+                    lineTo(9.4f * unit, 9f * unit)
+                    close()
+                }
+                drawPath(path, tint, style = Stroke(1.6f * unit, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+            }
+            "theme" -> {
+                drawCircle(tint, 7f * unit, center = point(12f, 12f), style = Stroke(1.7f * unit))
+                drawArc(tint, startAngle = 90f, sweepAngle = 180f, useCenter = true, topLeft = point(8f, 8f), size = androidx.compose.ui.geometry.Size(8f * unit, 8f * unit))
+                for (angle in 0 until 8) {
+                    val radians = Math.toRadians(angle * 45.0)
+                    line(
+                        12f + (kotlin.math.cos(radians) * 9.2f).toFloat(),
+                        12f + (kotlin.math.sin(radians) * 9.2f).toFloat(),
+                        12f + (kotlin.math.cos(radians) * 10.8f).toFloat(),
+                        12f + (kotlin.math.sin(radians) * 10.8f).toFloat(),
+                    )
+                }
+            }
+            "taskbox" -> {
+                drawRoundRect(tint, topLeft = point(8f, 3f), size = androidx.compose.ui.geometry.Size(12f * unit, 18f * unit), cornerRadius = androidx.compose.ui.geometry.CornerRadius(2f * unit), style = Stroke(1.7f * unit))
+                line(11f, 10f, 13f, 12.5f, 1.7f)
+                line(13f, 12.5f, 17f, 7.5f, 1.7f)
+                line(4f, 7f, 8f, 7f, 1.6f)
+                line(4f, 12f, 8f, 12f, 1.6f)
+                line(4f, 17f, 8f, 17f, 1.6f)
+            }
             "cloud" -> {
                 val path = Path().apply {
                     moveTo(7f * unit, 18f * unit)

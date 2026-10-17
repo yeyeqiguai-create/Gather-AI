@@ -10,7 +10,12 @@ import android.provider.Settings
 import android.speech.RecognizerIntent
 import androidx.activity.ComponentActivity
 import android.animation.ValueAnimator
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -681,7 +686,19 @@ class MainActivity : ComponentActivity() {
                 }
                 viewModel.onStateChanged = { uiState = it }
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Crossfade(targetState = showSettings || showTaskCenter || showHealth || showCenter || showArena, animationSpec = tween(screenTransitionMillis), label = "main-screen-transition") { showingNonChat ->
+                    AnimatedContent(
+                        targetState = showSettings || showTaskCenter || showHealth || showCenter || showArena,
+                        transitionSpec = {
+                            if (targetState) {
+                                (slideInHorizontally(tween(screenTransitionMillis)) { it / 5 } + fadeIn(tween(screenTransitionMillis))) togetherWith
+                                    (slideOutHorizontally(tween(screenTransitionMillis)) { -it / 12 } + fadeOut(tween(screenTransitionMillis)))
+                            } else {
+                                (slideInHorizontally(tween(screenTransitionMillis)) { -it / 12 } + fadeIn(tween(screenTransitionMillis))) togetherWith
+                                    (slideOutHorizontally(tween(screenTransitionMillis)) { it / 5 } + fadeOut(tween(screenTransitionMillis)))
+                            }
+                        },
+                        label = "main-screen-transition",
+                    ) { showingNonChat ->
                     if (showingNonChat) {
                     if (showHealth) {
                         HealthCenterScreen(

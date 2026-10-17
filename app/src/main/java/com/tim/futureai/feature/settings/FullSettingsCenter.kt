@@ -334,7 +334,7 @@ private fun SearchField(query: String, onChange: (String) -> Unit) {
 private fun SectionCard(section: SettingsSection, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(16.dp)).clickable(onClick = onClick).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(34.dp).clip(CircleShape).background(FuturePalette.Violet.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
-            Text(section.title.take(1), color = FuturePalette.VioletBright, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            FutureGlyph(glyphFor(section), tint = FuturePalette.VioletBright, size = 17.dp)
         }
         Column(Modifier.weight(1f).padding(start = 11.dp)) {
             Text(section.title, color = FuturePalette.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
@@ -565,6 +565,24 @@ private fun CapabilityEvidence.label() = when (this) {
     CapabilityEvidence.VERIFIED -> "已验证"
     CapabilityEvidence.PROVIDER_DECLARED -> "服务商声明"
     CapabilityEvidence.UNKNOWN -> "未知"
+}
+
+private fun glyphFor(section: SettingsSection): String = when (section) {
+    SettingsSection.GENERAL -> "settings"
+    SettingsSection.APPEARANCE -> "theme"
+    SettingsSection.CHAT -> "chat"
+    SettingsSection.PROVIDERS -> "cloud"
+    SettingsSection.MODEL_ROUTING -> "route"
+    SettingsSection.TASKS -> "taskbox"
+    SettingsSection.USAGE -> "chart"
+    SettingsSection.ATTACHMENTS -> "attach"
+    SettingsSection.VOICE -> "mic"
+    SettingsSection.UPDATES -> "download"
+    SettingsSection.SECURITY -> "shield"
+    SettingsSection.STORAGE -> "database"
+    SettingsSection.DIAGNOSTICS -> "pulse"
+    SettingsSection.HEALTH -> "pulse"
+    SettingsSection.ARENA -> "star"
 }
 
 private fun formatBytes(bytes: Long): String = when {

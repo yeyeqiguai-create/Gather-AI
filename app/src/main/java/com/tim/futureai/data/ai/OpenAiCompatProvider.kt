@@ -1,6 +1,7 @@
 package com.tim.futureai.data.ai
 
 import com.tim.futureai.core.common.AppError
+import com.tim.futureai.core.common.RetryAfter
 import com.tim.futureai.core.common.AppResult
 import com.tim.futureai.core.common.NetworkFailureKind
 import com.tim.futureai.core.common.toAppError
@@ -74,7 +75,7 @@ class OpenAiCompatProvider(
                 else {
                     val body = connection.errorStream?.bufferedReader()?.use { it.readText().take(1000) }.orEmpty()
                     val message = sanitize(OpenAiWire.extractErrorMessage(sanitize(body, config.apiKey)), config.apiKey)
-                    AppResult.failure(mapHttpError(code, message))
+                    AppResult.failure(mapHttpError(code, message, RetryAfter.parse(connection?.getHeaderField("Retry-After"))))
                 }
             } catch (e: SocketTimeoutException) {
                 AppResult.failure(AppError.Network("Connection test timed out", e, NetworkFailureKind.TIMEOUT))
@@ -185,7 +186,7 @@ class OpenAiCompatProvider(
             val errorBody = conn.errorStream?.bufferedReader()?.readText().orEmpty()
             val safeBody = sanitize(errorBody, config.apiKey)
             val message = sanitize(safeBody.let(OpenAiWire::extractErrorMessage), config.apiKey)
-            return AppResult.failure(mapHttpError(code, message))
+            return AppResult.failure(mapHttpError(code, message, RetryAfter.parse(conn.getHeaderField("Retry-After"))))
         } catch (e: CancellationException) {
             throw e
         } catch (e: OpenAiWire.ResponseParseException) {
@@ -233,12 +234,12 @@ class OpenAiCompatProvider(
 
     companion object {
         /** HTTP 状态码 → [AppError] 的统一映射（独立函数，便于测试）。 */
-        fun mapHttpError(code: Int, message: String): AppError {
+        fun mapHttpError(code: Int, message: String, retryAfterSeconds: Long? = null): AppError {
             val modelIssue = message.contains("model", ignoreCase = true) &&
                 listOf("not found", "does not exist", "doesn't exist", "unavailable", "unsupported").any { message.contains(it, ignoreCase = true) }
             return when {
                 code == 401 || code == 403 -> AppError.Auth(message, httpCode = code)
-                code == 429 -> AppError.RateLimited(message, httpCode = code)
+                code == 429 -> AppError.RateLimited(message, retryAfterSeconds = retryAfterSeconds, httpCode = code)
                 code in 500..599 -> AppError.Server(message, httpCode = code)
                 modelIssue -> AppError.ModelUnavailable(message, code)
                 else -> AppError.Http("HTTP $code: $message", code)

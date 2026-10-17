@@ -84,13 +84,17 @@ class UpdateLogicTest {
         assertTrue(result is UpdateCheckResult.InvalidMetadata)
     }
 
-    @Test fun manualChecksHaveNoCooldownAndOnlyBlockWhileInFlight() {
-        val gate = UpdateCheckGate()
+    @Test fun manualChecksBlockWhileInFlightAndRecoverAfterCooldown() {
+        var now = 1_000L
+        val gate = UpdateCheckGate(clock = { now }, cooldownMs = 30_000L)
         assertTrue(gate.tryStart())
         assertFalse(gate.tryStart())
-        gate.finish()
+        gate.finish(success = false)
+        assertFalse(gate.tryStart())
+        now += 30_000
         assertTrue(gate.tryStart())
         gate.finish()
+        gate.reset()
         assertTrue(gate.tryStart())
 
         val available = UpdateCheckResult.Available(release("v0.1.3.07 (Revise1)", 11))

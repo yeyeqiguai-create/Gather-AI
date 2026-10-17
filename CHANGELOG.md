@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.9.01 (Revise2) — Beta / Internal Development
+
+- HTTP 429 now parses Retry-After (seconds or RFC 1123 date) and surfaces it; chat retry waits accordingly.
+- Update check gate: in-flight blocking plus bounded cooldown, guaranteed release in finally, explicit reset on restart; manual checks recover after cooldown.
+- Glass: edge refraction enabled on Frosted and Liquid materials with higher transparency and stronger edge band; settings cards use vector icons instead of text glyphs; screen transitions slide from/to the origin edge.
+- versionCode 21.
+
 ## v0.1.9.01 (Revise1) — Beta / Internal Development
 
 - Session management: archive and restore sessions, archived filter tab, batch selection with confirmed bulk delete (archive keeps messages; active session cannot be archived).

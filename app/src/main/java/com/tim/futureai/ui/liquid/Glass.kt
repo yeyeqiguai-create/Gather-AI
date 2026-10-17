@@ -117,7 +117,7 @@ fun Modifier.glassSurface(
     val materialSpec = spec.material(material)
     val blurRadiusPx = materialSpec.blurDp * (0.5f + prefs.intensity) * screenDensity.density
     val refractionBandPx = materialSpec.refractionBandDp * screenDensity.density
-    val refractionStrength = 0.32f * prefs.intensity.coerceIn(0.2f, 1f)
+    val refractionStrength = 0.55f * prefs.intensity.coerceIn(0.25f, 1f)
 
     onGloballyPositioned { panelBounds = it.boundsInRoot() }
         // Crisp clip for the whole glass surface (tint, effects and children).
