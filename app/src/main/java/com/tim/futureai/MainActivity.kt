@@ -110,6 +110,8 @@ import com.tim.futureai.platform.notify.AndroidProactiveNotificationSink
 import com.tim.futureai.platform.schedule.HealthWorkScheduler
 import com.tim.futureai.platform.schedule.PeriodicHealthRunner
 import com.tim.futureai.platform.speech.SpeechController
+import com.tim.futureai.feature.audit.AuditEntry
+import com.tim.futureai.feature.audit.AuditScreen
 import com.tim.futureai.feature.arena.ArenaScreen
 import com.tim.futureai.feature.health.HealthCenterScreen
 import com.tim.futureai.feature.proactive.NotificationCenterScreen
@@ -288,6 +290,8 @@ class MainActivity : ComponentActivity() {
                 var showHealth by remember { mutableStateOf(false) }
                 var showCenter by remember { mutableStateOf(false) }
                 var showArena by remember { mutableStateOf(false) }
+                var showAudit by remember { mutableStateOf(false) }
+                var auditEntries by remember { mutableStateOf<List<AuditEntry>>(emptyList()) }
                 var latestReport by remember { mutableStateOf<com.tim.futureai.domain.health.HealthReport?>(null) }
                 var repairingCheckId by remember { mutableStateOf<String?>(null) }
                 var arenaRunning by remember { mutableStateOf(false) }
@@ -298,6 +302,21 @@ class MainActivity : ComponentActivity() {
                 var repairRecords by remember { mutableStateOf<List<com.tim.futureai.domain.health.RepairRecord>>(emptyList()) }
                 var healthIssues by remember { mutableStateOf<List<com.tim.futureai.domain.health.HealthIssue>>(emptyList()) }
                 var reputationViews by remember { mutableStateOf<List<com.tim.futureai.domain.reputation.ReputationView>>(emptyList()) }
+                suspend fun refreshAudit() {
+                    val entries = mutableListOf<AuditEntry>()
+                    taskEngine.tasks.value.forEach { aggregate ->
+                        aggregate.events.forEach { event ->
+                            entries += AuditEntry("t-" + aggregate.task.id + "-" + event.sequence, event.createdAtMs, "TASK", event.type.name, event.summary + " · " + aggregate.task.goal.take(40))
+                        }
+                    }
+                    repairRepository.allRecords().forEach { record ->
+                        entries += AuditEntry("r-" + record.recordId, record.finishedAtMs, "REPAIR", record.outcome.name, record.detail.take(180))
+                    }
+                    proactiveEngine.history().forEach { event ->
+                        entries += AuditEntry("p-" + event.eventId, event.lastSeenAtMs, "NOTIFY", event.title, event.detail.take(160) + " · 共 " + event.occurrences + " 次")
+                    }
+                    auditEntries = entries.sortedByDescending { it.atMs }.take(200)
+                }
                 suspend fun refreshCenterData() {
                     centerEvents = proactiveEngine.center()
                     repairRecords = repairRepository.allRecords()
@@ -340,10 +359,10 @@ class MainActivity : ComponentActivity() {
                 val screenTransitionMillis = if (appPreferences.animationsEnabled && systemAnimationsEnabled) 180 else 0
                 // System back / edge swipe: leave settings or task center instead of closing the app.
                 BackHandler(
-                    enabled = showSettings || showTaskCenter || showHealth || showCenter || showArena,
+                    enabled = showSettings || showTaskCenter || showHealth || showCenter || showArena || showAudit,
                 ) {
                     showSettings = false; showTaskCenter = false
-                    showHealth = false; showCenter = false; showArena = false
+                    showHealth = false; showCenter = false; showArena = false; showAudit = false
                 }
                 val speechController = remember {
                     SpeechController(applicationContext,
@@ -362,6 +381,9 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 LaunchedEffect(showSettings) {
+                    if (showSettings) runCatching { refreshAudit() }
+                }
+                LaunchedEffect(showSettings) {
                     if (showSettings) cacheBytes = withContext(Dispatchers.IO) {
                         cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
                     }
@@ -377,7 +399,7 @@ class MainActivity : ComponentActivity() {
                     centerEvents = proactiveEngine.center()
                 }
                 LaunchedEffect(taskHistory) {
-                    taskHistory.forEach { aggregate ->
+                    taskEngine.tasks.value.forEach { aggregate ->
                         val finished = aggregate.task.status in setOf(
                             com.tim.futureai.domain.task.TaskStatus.SUCCEEDED,
                             com.tim.futureai.domain.task.TaskStatus.FAILED,
@@ -781,6 +803,17 @@ class MainActivity : ComponentActivity() {
                             onBack = { showArena = false },
                             modifier = Modifier.fillMaxSize(),
                         )
+                    } else if (showAudit) {
+                        AuditScreen(
+                            entries = auditEntries,
+                            onExport = {
+                                val text = auditEntries.joinToString("\n") { entry -> entry.kind + " " + entry.atMs + " " + entry.title + " — " + entry.detail }
+                                (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                                    .setPrimaryClip(android.content.ClipData.newPlainText("Gather AI 审计", text))
+                            },
+                            onBack = { showAudit = false },
+                            modifier = Modifier.fillMaxSize(),
+                        )
                     } else if (showSettings) {
                         FullSettingsCenter(
                             preferences = appPreferences,
@@ -1061,6 +1094,18 @@ class MainActivity : ComponentActivity() {
                                         }
                                     },
                                     onOpenCenter = { showHealth = false; showCenter = true },
+                                    onBack = back,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            },
+                            auditContent = { back ->
+                                AuditScreen(
+                                    entries = auditEntries,
+                                    onExport = {
+                                        val text = auditEntries.joinToString("\n") { entry -> entry.kind + " " + entry.atMs + " " + entry.title + " — " + entry.detail }
+                                        (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                                            .setPrimaryClip(android.content.ClipData.newPlainText("Gather AI 审计", text))
+                                    },
                                     onBack = back,
                                     modifier = Modifier.fillMaxSize(),
                                 )

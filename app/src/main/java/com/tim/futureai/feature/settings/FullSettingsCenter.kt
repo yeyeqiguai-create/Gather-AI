@@ -110,6 +110,7 @@ fun FullSettingsCenter(
     updatesContent: @Composable () -> Unit,
     healthContent: @Composable (onBack: () -> Unit) -> Unit,
     arenaContent: @Composable (onBack: () -> Unit) -> Unit,
+    auditContent: @Composable (onBack: () -> Unit) -> Unit,
 ) {
     var section by rememberSaveable { mutableStateOf(SettingsSection.GENERAL) }
     // Edge swipe / system back: subpage returns to the category home first,
@@ -134,6 +135,8 @@ fun FullSettingsCenter(
                     healthContent { section = SettingsSection.GENERAL }
                 } else if (target == SettingsSection.ARENA) {
                     arenaContent { section = SettingsSection.GENERAL }
+                } else if (target == SettingsSection.AUDIT) {
+                    auditContent { section = SettingsSection.GENERAL }
                 } else {
                     SettingsPageFrame(
                         title = if (target == SettingsSection.GENERAL) "设置中心" else target.title,
@@ -166,7 +169,7 @@ fun FullSettingsCenter(
                             onClearHistory = { confirmation = SettingsSection.CHAT }, onClearCache = { confirmation = SettingsSection.STORAGE })
                         SettingsSection.DIAGNOSTICS -> DiagnosticsPage(versionName, versionCode, buildInfo, providerCount, enabledProviderCount,
                             updateStatus, operationMessage, latestErrorType, onCopyDiagnostics, onOpenGitHub, onOpenUpdates = { section = SettingsSection.UPDATES })
-                        SettingsSection.PROVIDERS, SettingsSection.HEALTH, SettingsSection.ARENA -> Unit
+                        SettingsSection.PROVIDERS, SettingsSection.HEALTH, SettingsSection.ARENA, SettingsSection.AUDIT -> Unit
                     }
                     }
                 }
@@ -580,6 +583,7 @@ private fun glyphFor(section: SettingsSection): String = when (section) {
     SettingsSection.UPDATES -> "download"
     SettingsSection.SECURITY -> "shield"
     SettingsSection.STORAGE -> "database"
+    SettingsSection.AUDIT -> "check"
     SettingsSection.DIAGNOSTICS -> "pulse"
     SettingsSection.HEALTH -> "pulse"
     SettingsSection.ARENA -> "star"

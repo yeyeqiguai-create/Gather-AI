@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.9.02 (Revise1) — Beta / Internal Development
+
+- Audit & history screen: unified task events, repair records and proactive notifications with kind filters and non-sensitive clipboard export.
+- versionCode 23.
+
 ## v0.1.9.01 (Revise3) — Beta / Internal Development
 
 - Chat: welcome no longer shows prompt cards; conversation list moved to a top-left button that slides the whole UI right and opens a left drawer (new chat, recent sessions, manage); every app launch opens a fresh conversation.
