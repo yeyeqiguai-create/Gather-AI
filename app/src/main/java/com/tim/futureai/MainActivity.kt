@@ -366,6 +366,11 @@ class MainActivity : ComponentActivity() {
                         cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
                     }
                 }
+                LaunchedEffect(Unit) {
+                    // Each app launch opens a fresh conversation; history stays available in the drawer.
+                    kotlinx.coroutines.delay(500)
+                    runCatching { viewModel.newSession() }
+                }
                 LaunchedEffect(taskEngine) {
                     runCatching { taskEngine.load(appPreferencesManager.load().toTaskEnginePolicy()) }
                     proactiveEngine.recoverOnStartup()

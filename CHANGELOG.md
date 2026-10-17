@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.9.01 (Revise3) — Beta / Internal Development
+
+- Chat: welcome no longer shows prompt cards; conversation list moved to a top-left button that slides the whole UI right and opens a left drawer (new chat, recent sessions, manage); every app launch opens a fresh conversation.
+- Readability: user bubbles are solid accent with white label; text overflow guarded; composer uses IME padding so the keyboard no longer covers the conversation.
+- versionCode 22.
+
 ## v0.1.9.01 (Revise2) — Beta / Internal Development
 
 - HTTP 429 now parses Retry-After (seconds or RFC 1123 date) and surfaces it; chat retry waits accordingly.

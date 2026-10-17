@@ -20,11 +20,17 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -142,8 +148,15 @@ fun ChatScreen(
         index >= 0 && state.messages[index].status in setOf(MessageStatus.FAILED, MessageStatus.CANCELLED)
     }
     val spec = LocalLiquidSpec.current
+    var drawerOpen by remember { mutableStateOf(false) }
+    val drawerOffset by animateDpAsState(
+        targetValue = if (drawerOpen) 300.dp else 0.dp,
+        animationSpec = tween(220),
+        label = "drawer-offset",
+    )
+    Box(Modifier.fillMaxSize()) {
     LiquidStage(
-        modifier = modifier,
+        modifier = modifier.fillMaxSize().offset(x = drawerOffset),
         source = {
             if (state.messages.isEmpty()) {
                 Column(Modifier.fillMaxSize()) {
@@ -169,7 +182,7 @@ fun ChatScreen(
             }
         },
         overlay = {
-            Column(Modifier.fillMaxSize().background(
+            Column(Modifier.fillMaxSize().imePadding().background(
                 Brush.verticalGradient(
                     0f to spec.ambientMiddle.copy(alpha = 0.96f),
                     0.10f to spec.ambientMiddle.copy(alpha = 0.86f),
@@ -214,6 +227,23 @@ fun ChatScreen(
             }
         },
     )
+        if (drawerOpen) {
+            Box(
+                Modifier.fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.35f))
+                    .clickable { drawerOpen = false },
+            )
+            ConversationDrawer(
+                sessions = state.sessions,
+                activeSessionId = state.activeSessionId,
+                onNew = { onNewSession(); drawerOpen = false },
+                onSelect = { onSelectSession(it); drawerOpen = false },
+                onManage = { showSessionManager = true; drawerOpen = false },
+                onClose = { drawerOpen = false },
+                modifier = Modifier.align(Alignment.CenterStart),
+            )
+        }
+    }
     if (showSessionManager) SessionManagerDialog(
         sessions = state.sessions,
         activeSessionId = state.activeSessionId,
@@ -248,9 +278,14 @@ private fun BrandBar(
     var modelMenuExpanded by remember { mutableStateOf(false) }
     val spec = LocalLiquidSpec.current
     Row(
-        modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(top = 10.dp, start = 18.dp, end = 14.dp, bottom = 10.dp),
+        modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(top = 10.dp, start = 12.dp, end = 14.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Box(
+            modifier = Modifier.size(38.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onSessionsClick),
+            contentAlignment = Alignment.Center,
+        ) { FutureGlyph("sessions", tint = FuturePalette.Text, size = 17.dp) }
+        Spacer(Modifier.width(8.dp))
         Box(
             modifier = Modifier.size(36.dp).clip(RoundedCornerShape(13.dp)).background(
                 Brush.linearGradient(listOf(spec.accentBright, spec.accent, spec.cyan.copy(alpha = 0.65f))),
@@ -305,11 +340,6 @@ private fun BrandBar(
             modifier = Modifier.size(38.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onTaskCenterClick),
             contentAlignment = Alignment.Center,
         ) { Text("任务", color = FuturePalette.Cyan, fontSize = 10.sp, fontWeight = FontWeight.SemiBold) }
-        Box(
-            modifier = Modifier.size(38.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onSessionsClick),
-            contentAlignment = Alignment.Center,
-        ) { FutureGlyph("sessions", tint = FuturePalette.VioletBright, size = 21.dp) }
-        Spacer(Modifier.width(8.dp))
         Box(
             modifier = Modifier.size(38.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onSettingsClick),
             contentAlignment = Alignment.Center,
@@ -495,16 +525,6 @@ private fun WelcomeContent(
             Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 HeroCard(configured)
                 if (!configured) SetupStatusCard(onClick = onSettingsClick)
-                Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("从这里开始", color = FuturePalette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.width(8.dp))
-                        Text("灵感提示", color = FuturePalette.Muted, fontSize = 11.sp)
-                    }
-                    ExamplePrompts.forEachIndexed { index, prompt ->
-                        PromptCard(prompt, index, onClick = { onExamplePrompt(prompt) })
-                    }
-                }
                 Text(
                     "回答由 AI 生成 · 重要信息请核实",
                     color = FuturePalette.Muted.copy(alpha = 0.75f),
@@ -592,7 +612,7 @@ private fun Conversation(
         modifier = modifier,
         // Messages run under the glass top bar and composer; the glass surfaces
         // blur the real content passing behind them.
-        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 116.dp, bottom = 148.dp),
+        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 116.dp, bottom = 190.dp),
         verticalArrangement = Arrangement.spacedBy(if (compactSpacing) 8.dp else 14.dp),
     ) {
         itemsIndexed(messages) { index, message ->
@@ -629,15 +649,14 @@ private fun MessageBubble(
             modifier = Modifier.widthIn(max = chatBubbleMaxWidthDp(screenWidthDp).dp)
                 .clip(bubbleShape)
                 .then(
-                    if (isUser) Modifier.background(
-                        Brush.linearGradient(listOf(spec.accentBright.copy(alpha = 0.30f), spec.accent.copy(alpha = 0.16f))),
-                    ).border(1.dp, spec.accentBright.copy(alpha = 0.45f), bubbleShape)
+                    if (isUser) Modifier.background(spec.accent.copy(alpha = 0.92f))
+                        .border(1.dp, spec.accentBright.copy(alpha = 0.55f), bubbleShape)
                     else Modifier.softSurface(bubbleShape),
                 )
                 .padding(horizontal = 16.dp, vertical = 13.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            Text(if (isUser) "你" else "GATHER AI", color = if (isUser) spec.accentBright else spec.cyan, fontSize = 9.sp, letterSpacing = 1.15.sp, fontWeight = FontWeight.SemiBold)
+            Text(if (isUser) "你" else "GATHER AI", color = if (isUser) Color.White.copy(alpha = 0.85f) else spec.cyan, fontSize = 9.sp, letterSpacing = 1.15.sp, fontWeight = FontWeight.SemiBold)
             if (isUser) {
                 message.attachments.forEach { attachment ->
                     Text("📎 ${attachment.name}", color = FuturePalette.Cyan, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -851,7 +870,7 @@ private fun Composer(
     val keyboard = LocalSoftwareKeyboardController.current
     val spec = LocalLiquidSpec.current
     Column(
-        modifier = Modifier.fillMaxWidth().imePadding().navigationBarsPadding().padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 8.dp),
+        modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 8.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         if (attachments.isNotEmpty()) Row(
@@ -898,5 +917,48 @@ private fun Composer(
             }
         }
         Text("AI 生成内容可能不准确", color = FuturePalette.Muted.copy(alpha = 0.7f), fontSize = 10.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+    }
+}
+
+
+@Composable
+private fun ConversationDrawer(
+    sessions: List<ChatSession>,
+    activeSessionId: String,
+    onNew: () -> Unit,
+    onSelect: (String) -> Unit,
+    onManage: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val spec = LocalLiquidSpec.current
+    Column(
+        modifier.width(300.dp).fillMaxHeight()
+            .background(spec.ambientTop.copy(alpha = 0.97f))
+            .statusBarsPadding().navigationBarsPadding()
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("对话", color = spec.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            TextButton(onClick = onClose) { Text("关闭", color = spec.muted, fontSize = 11.sp) }
+        }
+        Button(onClick = onNew, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) { Text("新建对话") }
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(sessions.sortedByDescending { it.updatedAt }, key = { it.id }) { session ->
+                val active = session.id == activeSessionId
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(11.dp))
+                        .background(if (active) spec.accent.copy(alpha = 0.22f) else spec.surfaceTint.copy(alpha = 0.5f))
+                        .clickable { onSelect(session.id) }
+                        .padding(horizontal = 11.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(session.title, color = spec.text, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    if (session.isPinned) Text("置顶", color = spec.cyan, fontSize = 9.sp)
+                }
+            }
+        }
+        TextButton(onClick = onManage, modifier = Modifier.fillMaxWidth()) { Text("管理会话（归档/删除/重命名）", color = spec.cyan, fontSize = 11.sp) }
     }
 }
