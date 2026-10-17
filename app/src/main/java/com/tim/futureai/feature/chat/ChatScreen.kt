@@ -118,6 +118,8 @@ fun ChatScreen(
     onSelectSession: (String) -> Unit = {},
     onRenameSession: (String, String) -> Boolean = { _, _ -> false },
     onToggleSessionPinned: (String) -> Boolean = { false },
+    onArchiveSession: (String, Boolean) -> Boolean = { _, _ -> false },
+    onDeleteSessions: (Set<String>) -> Int = { 0 },
     onDeleteSession: (String) -> Boolean = { false },
     onModelSelected: (String?) -> Unit = {},
     onNextMessageModelSelected: (String) -> Unit = {},
@@ -220,6 +222,8 @@ fun ChatScreen(
         onSelect = { onSelectSession(it); showSessionManager = false },
         onRename = onRenameSession,
         onTogglePinned = onToggleSessionPinned,
+        onArchive = onArchiveSession,
+        onDeleteMany = onDeleteSessions,
         onDelete = onDeleteSession,
     )
 }
@@ -322,6 +326,8 @@ private fun SessionManagerDialog(
     onSelect: (String) -> Unit,
     onRename: (String, String) -> Boolean,
     onTogglePinned: (String) -> Boolean,
+    onArchive: (String, Boolean) -> Boolean,
+    onDeleteMany: (Set<String>) -> Int,
     onDelete: (String) -> Boolean,
 ) {
     var editingId by remember { mutableStateOf<String?>(null) }
@@ -330,8 +336,12 @@ private fun SessionManagerDialog(
     var searchQuery by remember { mutableStateOf("") }
     var sortOrder by remember { mutableStateOf(SessionSortOrder.RECENT_ACTIVITY) }
     var showSortMenu by remember { mutableStateOf(false) }
+    var showArchived by remember { mutableStateOf(false) }
+    var batchMode by remember { mutableStateOf(false) }
+    val selected = remember { androidx.compose.runtime.mutableStateListOf<String>() }
+    var confirmBatchDelete by remember { mutableStateOf(false) }
     val spec = LocalLiquidSpec.current
-    val visibleSessions = sortAndFilterSessions(sessions, searchQuery, sortOrder)
+    val visibleSessions = sortAndFilterSessions(sessions.filter { it.isArchived == showArchived }, searchQuery, sortOrder)
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
             Modifier.fillMaxWidth(0.94f).widthIn(max = 440.dp).glassPanel(RoundedCornerShape(28.dp)).padding(20.dp),
@@ -362,6 +372,21 @@ private fun SessionManagerDialog(
                     TextButton(onClick = { searchQuery = "" }, contentPadding = PaddingValues(horizontal = 8.dp)) {
                         Text("清空", color = FuturePalette.VioletBright, fontSize = 11.sp)
                     }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                TextButton(onClick = { showArchived = false; batchMode = false; selected.clear() }) { Text("会话", color = if (!showArchived) FuturePalette.Cyan else FuturePalette.Muted, fontSize = 11.sp) }
+                TextButton(onClick = { showArchived = true; batchMode = false; selected.clear() }) { Text("归档", color = if (showArchived) FuturePalette.Cyan else FuturePalette.Muted, fontSize = 11.sp) }
+                TextButton(onClick = { batchMode = !batchMode; selected.clear() }) { Text(if (batchMode) "退出批量" else "批量选择", color = FuturePalette.VioletBright, fontSize = 11.sp) }
+            }
+            if (batchMode) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = {
+                        if (selected.size == visibleSessions.size) selected.clear()
+                        else { selected.clear(); selected.addAll(visibleSessions.filter { it.id != activeSessionId }.map { it.id }) }
+                    }) { Text("全选", color = FuturePalette.Cyan, fontSize = 11.sp) }
+                    Text("已选 " + selected.size, color = FuturePalette.Muted, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { if (selected.isNotEmpty()) confirmBatchDelete = true }) { Text("删除所选", color = FuturePalette.Danger, fontSize = 11.sp) }
                 }
             }
             Box {
@@ -405,6 +430,13 @@ private fun SessionManagerDialog(
                             TextButton(onClick = { if (onRename(session.id, editText)) editingId = null }, enabled = editText.isNotBlank()) { Text("保存", color = FuturePalette.Cyan, fontSize = 11.sp) }
                             TextButton(onClick = { editingId = null }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("取消", color = FuturePalette.Muted, fontSize = 11.sp) }
                         } else {
+                            if (batchMode) {
+                                androidx.compose.material3.Checkbox(
+                                    checked = session.id in selected,
+                                    enabled = session.id != activeSessionId,
+                                    onCheckedChange = { checked -> if (checked) selected.add(session.id) else selected.remove(session.id) },
+                                )
+                            }
                             Column(Modifier.weight(1f).padding(vertical = 7.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(session.title, color = FuturePalette.Text, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -416,6 +448,9 @@ private fun SessionManagerDialog(
                                 FutureGlyph(if (session.isPinned) "pin_filled" else "pin", tint = if (session.isPinned) FuturePalette.Cyan else FuturePalette.Muted, size = 17.dp)
                             }
                             androidx.compose.material3.IconButton(onClick = { editingId = session.id; editText = session.title }) { FutureGlyph("edit", tint = FuturePalette.Muted, size = 17.dp) }
+                            if (!batchMode) {
+                                TextButton(onClick = { onArchive(session.id, !session.isArchived) }) { Text(if (session.isArchived) "恢复" else "归档", color = FuturePalette.Cyan, fontSize = 10.sp) }
+                            }
                             androidx.compose.material3.IconButton(onClick = { deleteTarget = session }) { FutureGlyph("delete", tint = FuturePalette.Danger, size = 17.dp) }
                         }
                     }
@@ -423,6 +458,15 @@ private fun SessionManagerDialog(
             }
             TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) { Text("完成", color = FuturePalette.VioletBright) }
         }
+    }
+    if (confirmBatchDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmBatchDelete = false },
+            title = { Text("删除所选会话？") },
+            text = { Text("将删除 " + selected.size + " 个会话及其消息，此操作不可撤销。") },
+            confirmButton = { TextButton(onClick = { onDeleteMany(selected.toSet()); selected.clear(); confirmBatchDelete = false }) { Text("删除", color = FuturePalette.Danger) } },
+            dismissButton = { TextButton(onClick = { confirmBatchDelete = false }) { Text("取消") } },
+        )
     }
     deleteTarget?.let { target ->
         AlertDialog(

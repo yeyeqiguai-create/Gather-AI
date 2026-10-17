@@ -39,6 +39,7 @@ class FileChatSessionsRepository(private val file: File, private val legacyFile:
                     createdAt = Instant.parse(fields.string("createdAt")),
                     updatedAt = Instant.parse(fields.string("updatedAt")),
                     isPinned = fields["isPinned"]?.let { (it as? JsonValue.JBool)?.value ?: error("Invalid pin state") } ?: false,
+                    isArchived = (fields["isArchived"] as? JsonValue.JBool)?.value ?: false,
                     modelProfileId = fields["modelProfileId"]?.asString(),
                 )
                 ChatSessionData(session, decodeMessages(fields))
@@ -61,7 +62,7 @@ class FileChatSessionsRepository(private val file: File, private val legacyFile:
                 "{" + listOf(
                     "\"id\":" + JsonMini.quote(s.id), "\"title\":" + JsonMini.quote(s.title),
                     "\"createdAt\":" + JsonMini.quote(s.createdAt.toString()), "\"updatedAt\":" + JsonMini.quote(s.updatedAt.toString()),
-                    "\"isPinned\":" + s.isPinned,
+                    "\"isPinned\":" + s.isPinned + ",\"isArchived\":" + s.isArchived,
                     "\"modelProfileId\":" + (s.modelProfileId?.let(JsonMini::quote) ?: "null"),
                     "\"messages\":" + encodeMessages(data.messages),
                 ).joinToString(",") + "}"

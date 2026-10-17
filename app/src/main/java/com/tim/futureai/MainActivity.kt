@@ -1097,6 +1097,8 @@ class MainActivity : ComponentActivity() {
                         onSelectSession = viewModel::selectSession,
                         onRenameSession = viewModel::renameSession,
                         onToggleSessionPinned = viewModel::toggleSessionPinned,
+                        onArchiveSession = viewModel::archiveSession,
+                        onDeleteSessions = viewModel::deleteSessions,
                         onDeleteSession = viewModel::deleteSession,
                         onModelSelected = viewModel::selectModel,
                         onNextMessageModelSelected = viewModel::selectModelForNextMessage,

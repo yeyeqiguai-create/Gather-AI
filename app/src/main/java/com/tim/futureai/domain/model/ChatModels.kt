@@ -63,6 +63,7 @@ data class ChatSession(
     val createdAt: Instant = Instant.now(),
     val updatedAt: Instant = createdAt,
     val isPinned: Boolean = false,
+    val isArchived: Boolean = false,
     val modelProfileId: String? = null,
 ) {
     init {

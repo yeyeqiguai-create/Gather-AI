@@ -261,6 +261,28 @@ class ChatViewModel(
         return true
     }
 
+    fun archiveSession(id: String, archived: Boolean): Boolean {
+        if (_state.isLoading || _state.isHistoryLoading) return false
+        val index = sessionData.indexOfFirst { it.session.id == id }
+        if (index < 0) return false
+        if (archived && sessionData[index].session.id == _state.activeSessionId) return false
+        val current = sessionData[index]
+        sessionData[index] = current.copy(session = current.session.copy(isArchived = archived))
+        setState(_state.copy(sessions = sessionData.map { it.session }))
+        persistAll()
+        return true
+    }
+
+    fun deleteSessions(ids: Set<String>): Int {
+        if (_state.isLoading || _state.isHistoryLoading) return 0
+        val removable = sessionData.filter { it.session.id in ids && it.session.id != _state.activeSessionId }
+        if (removable.isEmpty()) return 0
+        sessionData.removeAll(removable.toSet())
+        setState(_state.copy(sessions = sessionData.map { it.session }))
+        persistAll()
+        return removable.size
+    }
+
     fun deleteSession(id: String): Boolean {
         if (_state.isLoading || _state.isHistoryLoading || sessionData.none { it.session.id == id }) return false
         sessionData.removeAll { it.session.id == id }

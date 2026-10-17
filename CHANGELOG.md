@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.9.01 (Revise1) — Beta / Internal Development
+
+- Session management: archive and restore sessions, archived filter tab, batch selection with confirmed bulk delete (archive keeps messages; active session cannot be archived).
+- versionCode 20; no business logic changes.
+
 ## v0.1.8.01 (Revise2) — Beta / Internal Development
 
 - Chat layout root-cause fixes: title stays horizontal (single-line, compact toolbar), bubbles size from the real window width (removed forced 86% fill), message action row scrolls horizontally instead of stacking characters vertically.
