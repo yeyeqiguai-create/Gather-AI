@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.8.01 (Revise2) — Beta / Internal Development
+
+- Chat layout root-cause fixes: title stays horizontal (single-line, compact toolbar), bubbles size from the real window width (removed forced 86% fill), message action row scrolls horizontally instead of stacking characters vertically.
+- Request-completed card is transient (1.5s) and never blocks the conversation; failure/cancel states still persist until dismissed.
+- versionCode 19; no business logic changes.
+
 ## v0.1.7.01 (Revise2) — Beta / Internal Development
 
 - Readability-first Liquid Reality: raised glass tint opacity across all four themes so chat body, composer and dialogs stay clearly readable; blur and refraction remain style accents.

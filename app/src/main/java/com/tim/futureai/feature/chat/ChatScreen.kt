@@ -90,6 +90,10 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import com.tim.futureai.domain.model.ChatAttachment
 
+/** Bubble width derives from the real window width; never exceeds 330dp. */
+internal fun chatBubbleMaxWidthDp(screenWidthDp: Float): Float =
+    (screenWidthDp * 0.86f).coerceAtMost(330f)
+
 private val ExamplePrompts = listOf(
     "把复杂概念讲得简单一点",
     "帮我整理今天的想法",
@@ -135,6 +139,7 @@ fun ChatScreen(
     val retryNoticeIndex = state.messages.indexOfLast { it.role == MessageRole.USER }.takeIf { index ->
         index >= 0 && state.messages[index].status in setOf(MessageStatus.FAILED, MessageStatus.CANCELLED)
     }
+    val spec = LocalLiquidSpec.current
     LiquidStage(
         modifier = modifier,
         source = {
@@ -162,13 +167,29 @@ fun ChatScreen(
             }
         },
         overlay = {
-            Column(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().background(
+                Brush.verticalGradient(
+                    0f to spec.ambientMiddle.copy(alpha = 0.96f),
+                    0.10f to spec.ambientMiddle.copy(alpha = 0.86f),
+                    0.16f to Color.Transparent,
+                ),
+            )) {
                 BrandBar(state.sessionTitle, state.modelChoices, state.selectedModelId, onModelSelected, onNextMessageModelSelected, onExportSession, { showSessionManager = true }, onSettingsClick, state.activeModelExplanation, showModelNames, showRoutingReason, onTaskCenterClick)
                 if (state.messages.isNotEmpty()) {
                     if (!isAiConfigured) {
                         SetupStatusCard(onClick = onSettingsClick, modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
                     }
-                    if (state.requestStatus != ChatRequestStatus.IDLE) {
+                    var showCompleted by remember { mutableStateOf(false) }
+                    LaunchedEffect(state.requestStatus) {
+                        if (state.requestStatus == ChatRequestStatus.COMPLETED) {
+                            showCompleted = true
+                            kotlinx.coroutines.delay(1500)
+                            showCompleted = false
+                        }
+                    }
+                    if (state.requestStatus != ChatRequestStatus.IDLE &&
+                        (state.requestStatus != ChatRequestStatus.COMPLETED || showCompleted)
+                    ) {
                         RequestStatusCard(state.requestStatus, Modifier.padding(horizontal = 18.dp, vertical = 5.dp))
                     }
                 }
@@ -223,18 +244,21 @@ private fun BrandBar(
     var modelMenuExpanded by remember { mutableStateOf(false) }
     val spec = LocalLiquidSpec.current
     Row(
-        modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(top = 12.dp, start = 22.dp, end = 18.dp, bottom = 14.dp),
+        modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(top = 10.dp, start = 18.dp, end = 14.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            modifier = Modifier.size(42.dp).clip(RoundedCornerShape(15.dp)).background(
+            modifier = Modifier.size(36.dp).clip(RoundedCornerShape(13.dp)).background(
                 Brush.linearGradient(listOf(spec.accentBright, spec.accent, spec.cyan.copy(alpha = 0.65f))),
             ),
             contentAlignment = Alignment.Center,
         ) { FutureGlyph("spark", tint = Color.White, size = 22.dp) }
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text("Gather AI", color = FuturePalette.Text, fontSize = 19.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp)
+            Text(
+                "Gather AI", color = FuturePalette.Text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+                letterSpacing = (-0.3).sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
             Text(sessionTitle, color = FuturePalette.Muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (modelChoices.isNotEmpty()) {
                 val selectedModel = modelChoices.firstOrNull { it.id == selectedModelId }
@@ -262,28 +286,28 @@ private fun BrandBar(
                 }
             }
         }
-        Box(Modifier.size(38.dp).clip(CircleShape).clickable(onClick = onExportSession), contentAlignment = Alignment.Center) {
-            Text("⇩", color = FuturePalette.Cyan, fontSize = 20.sp)
+        Box(Modifier.size(34.dp).clip(CircleShape).clickable(onClick = onExportSession), contentAlignment = Alignment.Center) {
+            Text("⇩", color = FuturePalette.Cyan, fontSize = 17.sp)
         }
         Box(
-            modifier = Modifier.size(40.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onArenaClick),
+            modifier = Modifier.size(36.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onArenaClick),
             contentAlignment = Alignment.Center,
         ) { Text("★", color = FuturePalette.Cyan, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
         Box(
-            modifier = Modifier.size(40.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onHealthClick),
+            modifier = Modifier.size(36.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onHealthClick),
             contentAlignment = Alignment.Center,
         ) { FutureGlyph("shield", tint = FuturePalette.Success, size = 17.dp) }
         Box(
-            modifier = Modifier.size(44.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onTaskCenterClick),
+            modifier = Modifier.size(38.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onTaskCenterClick),
             contentAlignment = Alignment.Center,
         ) { Text("任务", color = FuturePalette.Cyan, fontSize = 10.sp, fontWeight = FontWeight.SemiBold) }
         Box(
-            modifier = Modifier.size(44.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onSessionsClick),
+            modifier = Modifier.size(38.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onSessionsClick),
             contentAlignment = Alignment.Center,
         ) { FutureGlyph("sessions", tint = FuturePalette.VioletBright, size = 21.dp) }
         Spacer(Modifier.width(8.dp))
         Box(
-            modifier = Modifier.size(44.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onSettingsClick),
+            modifier = Modifier.size(38.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onSettingsClick),
             contentAlignment = Alignment.Center,
         ) { FutureGlyph("settings", tint = FuturePalette.VioletBright, size = 21.dp) }
     }
@@ -546,6 +570,7 @@ private fun MessageBubble(
     val spec = LocalLiquidSpec.current
     var copied by remember(message.text) { mutableStateOf(false) }
     val bubbleShape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp, bottomEnd = if (isUser) 7.dp else 22.dp, bottomStart = if (isUser) 22.dp else 7.dp)
+    val screenWidthDp = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.toFloat()
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
@@ -557,7 +582,7 @@ private fun MessageBubble(
             }
         }
         Column(
-            modifier = Modifier.widthIn(max = 330.dp).fillMaxWidth(0.86f)
+            modifier = Modifier.widthIn(max = chatBubbleMaxWidthDp(screenWidthDp).dp)
                 .clip(bubbleShape)
                 .then(
                     if (isUser) Modifier.background(
@@ -582,7 +607,11 @@ private fun MessageBubble(
                     }) {}
                 })
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            ) {
                 TextButton(onClick = {
                     copyMessageText(message.text, { text ->
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -594,24 +623,24 @@ private fun MessageBubble(
                 }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
                     FutureGlyph("copy", tint = FuturePalette.Muted, size = 14.dp)
                     Spacer(Modifier.width(4.dp))
-                    Text(if (copied) "已复制" else "复制", color = if (copied) FuturePalette.Cyan else FuturePalette.Muted, fontSize = 10.sp)
+                    Text(if (copied) "已复制" else "复制", maxLines = 1, color = if (copied) FuturePalette.Cyan else FuturePalette.Muted, fontSize = 10.sp)
                 }
                 TextButton(onClick = { onShareMessage(message.text) }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
-                    Text("分享", color = FuturePalette.Muted, fontSize = 10.sp)
+                    Text("分享", maxLines = 1, color = FuturePalette.Muted, fontSize = 10.sp)
                 }
                 if (isUser) TextButton(onClick = { onEditMessage(index) }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
-                    Text("编辑", color = FuturePalette.VioletBright, fontSize = 10.sp)
+                    Text("编辑", maxLines = 1, color = FuturePalette.VioletBright, fontSize = 10.sp)
                 }
                 if (!isUser) TextButton(onClick = { onSpeak(messageKey, message.text) }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
-                    Text(if (isSpeaking) "停止朗读" else "朗读", color = if (isSpeaking) FuturePalette.Cyan else FuturePalette.Muted, fontSize = 10.sp)
+                    Text(if (isSpeaking) "停止朗读" else "朗读", maxLines = 1, color = if (isSpeaking) FuturePalette.Cyan else FuturePalette.Muted, fontSize = 10.sp)
                 }
                 if (!isUser) TextButton(onClick = { onRegenerate(index) }, enabled = message.status != MessageStatus.GENERATING, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
                     FutureGlyph("retry", tint = FuturePalette.VioletBright, size = 14.dp)
                     Spacer(Modifier.width(4.dp))
-                    Text("重新生成", color = FuturePalette.VioletBright, fontSize = 10.sp)
+                    Text("重新生成", maxLines = 1, color = FuturePalette.VioletBright, fontSize = 10.sp)
                 }
                 if (isUser && canRetry && message.status in setOf(MessageStatus.FAILED, MessageStatus.CANCELLED)) TextButton(onClick = { onRetry(index) }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
-                    Text("重试", color = FuturePalette.VioletBright, fontSize = 10.sp)
+                    Text("重试", maxLines = 1, color = FuturePalette.VioletBright, fontSize = 10.sp)
                 }
             }
             when (message.status) {
