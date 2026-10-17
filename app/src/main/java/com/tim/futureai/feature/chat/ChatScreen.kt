@@ -72,6 +72,9 @@ import androidx.compose.ui.unit.sp
 import com.tim.futureai.domain.model.MessageRole
 import com.tim.futureai.domain.model.MessageStatus
 import com.tim.futureai.domain.model.ChatSession
+import com.tim.futureai.ui.liquid.LiquidStage
+import com.tim.futureai.ui.liquid.LocalLiquidSpec
+import com.tim.futureai.ui.liquid.softSurface
 import com.tim.futureai.ui.theme.FutureBackdrop
 import com.tim.futureai.ui.theme.FutureGlyph
 import com.tim.futureai.ui.theme.FuturePalette
@@ -127,13 +130,50 @@ fun ChatScreen(
     modifier: Modifier = Modifier,
 ) {
     var showSessionManager by remember { mutableStateOf(false) }
-    FutureBackdrop(modifier) {
-        androidx.compose.material3.Scaffold(
-            modifier = Modifier.fillMaxSize(),
-            containerColor = Color.Transparent,
-            contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
-            topBar = { BrandBar(state.sessionTitle, state.modelChoices, state.selectedModelId, onModelSelected, onNextMessageModelSelected, onExportSession, { showSessionManager = true }, onSettingsClick, state.activeModelExplanation, showModelNames, showRoutingReason, onTaskCenterClick) },
-            bottomBar = {
+    val retryNoticeIndex = state.messages.indexOfLast { it.role == MessageRole.USER }.takeIf { index ->
+        index >= 0 && state.messages[index].status in setOf(MessageStatus.FAILED, MessageStatus.CANCELLED)
+    }
+    LiquidStage(
+        modifier = modifier,
+        source = {
+            if (state.messages.isEmpty()) {
+                Column(Modifier.fillMaxSize()) {
+                    WelcomeContent(
+                        configured = isAiConfigured,
+                        onSettingsClick = onSettingsClick,
+                        onExamplePrompt = onExamplePrompt,
+                        modifier = Modifier.weight(1f).statusBarsPadding(),
+                    )
+                }
+            } else {
+                Conversation(
+                    messages = state.messages,
+                    onRegenerate = onRegenerate,
+                    onRetry = onRetry,
+                    speakingMessageKey = speakingMessageKey,
+                    onSpeak = onSpeak,
+                    onEditMessage = onEditMessage,
+                    onShareMessage = onShareMessage,
+                    compactSpacing = compactSpacing,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        },
+        overlay = {
+            Column(Modifier.fillMaxSize()) {
+                BrandBar(state.sessionTitle, state.modelChoices, state.selectedModelId, onModelSelected, onNextMessageModelSelected, onExportSession, { showSessionManager = true }, onSettingsClick, state.activeModelExplanation, showModelNames, showRoutingReason, onTaskCenterClick)
+                if (state.messages.isNotEmpty()) {
+                    if (!isAiConfigured) {
+                        SetupStatusCard(onClick = onSettingsClick, modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
+                    }
+                    if (state.requestStatus != ChatRequestStatus.IDLE) {
+                        RequestStatusCard(state.requestStatus, Modifier.padding(horizontal = 18.dp, vertical = 5.dp))
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                state.notice?.let {
+                    NoticeCard(it, onDismissNotice, retryNoticeIndex?.let { index -> { onRetry(index) } }, Modifier.padding(horizontal = 18.dp, vertical = 6.dp))
+                }
                 Composer(
                     text = state.inputText,
                     isLoading = state.isLoading,
@@ -146,59 +186,19 @@ fun ChatScreen(
                     onRemoveAttachment = onRemoveAttachment,
                     onListen = onListen,
                 )
-            },
-        ) { insets ->
-            Column(
-                modifier = Modifier.fillMaxSize().padding(insets),
-            ) {
-                if (state.messages.isEmpty()) {
-                    Column(Modifier.fillMaxSize()) {
-                        WelcomeContent(
-                            configured = isAiConfigured,
-                            onSettingsClick = onSettingsClick,
-                            onExamplePrompt = onExamplePrompt,
-                            modifier = Modifier.weight(1f),
-                        )
-                        state.notice?.let { NoticeCard(it, onDismissNotice, modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)) }
-                    }
-                } else {
-                    if (!isAiConfigured) {
-                        SetupStatusCard(onClick = onSettingsClick, modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
-                    }
-                    if (state.requestStatus != ChatRequestStatus.IDLE) {
-                        RequestStatusCard(state.requestStatus, Modifier.padding(horizontal = 18.dp, vertical = 5.dp))
-                    }
-                    val retryIndex = state.messages.indexOfLast { it.role == MessageRole.USER }.takeIf { index ->
-                        index >= 0 && state.messages[index].status in setOf(MessageStatus.FAILED, MessageStatus.CANCELLED)
-                    }
-                    state.notice?.let {
-                        NoticeCard(it, onDismissNotice, retryIndex?.let { index -> { onRetry(index) } }, Modifier.padding(horizontal = 18.dp, vertical = 6.dp))
-                    }
-                    Conversation(
-                        messages = state.messages,
-                        onRegenerate = onRegenerate,
-                        onRetry = onRetry,
-                        speakingMessageKey = speakingMessageKey,
-                        onSpeak = onSpeak,
-                        onEditMessage = onEditMessage,
-                        onShareMessage = onShareMessage,
-                        compactSpacing = compactSpacing,
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                    )
-                }
             }
-        }
-        if (showSessionManager) SessionManagerDialog(
-            sessions = state.sessions,
-            activeSessionId = state.activeSessionId,
-            onDismiss = { showSessionManager = false },
-            onNew = { onNewSession(); showSessionManager = false },
-            onSelect = { onSelectSession(it); showSessionManager = false },
-            onRename = onRenameSession,
-            onTogglePinned = onToggleSessionPinned,
-            onDelete = onDeleteSession,
-        )
-    }
+        },
+    )
+    if (showSessionManager) SessionManagerDialog(
+        sessions = state.sessions,
+        activeSessionId = state.activeSessionId,
+        onDismiss = { showSessionManager = false },
+        onNew = { onNewSession(); showSessionManager = false },
+        onSelect = { onSelectSession(it); showSessionManager = false },
+        onRename = onRenameSession,
+        onTogglePinned = onToggleSessionPinned,
+        onDelete = onDeleteSession,
+    )
 }
 
 @Composable
@@ -217,13 +217,14 @@ private fun BrandBar(
     onTaskCenterClick: () -> Unit = {},
 ) {
     var modelMenuExpanded by remember { mutableStateOf(false) }
+    val spec = LocalLiquidSpec.current
     Row(
         modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(top = 12.dp, start = 22.dp, end = 18.dp, bottom = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             modifier = Modifier.size(42.dp).clip(RoundedCornerShape(15.dp)).background(
-                Brush.linearGradient(listOf(Color(0xFF8D78F2), Color(0xFF5145A9), Color(0xFF253B78))),
+                Brush.linearGradient(listOf(spec.accentBright, spec.accent, spec.cyan.copy(alpha = 0.65f))),
             ),
             contentAlignment = Alignment.Center,
         ) { FutureGlyph("spark", tint = Color.White, size = 22.dp) }
@@ -293,6 +294,7 @@ private fun SessionManagerDialog(
     var searchQuery by remember { mutableStateOf("") }
     var sortOrder by remember { mutableStateOf(SessionSortOrder.RECENT_ACTIVITY) }
     var showSortMenu by remember { mutableStateOf(false) }
+    val spec = LocalLiquidSpec.current
     val visibleSessions = sortAndFilterSessions(sessions, searchQuery, sortOrder)
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
@@ -307,11 +309,11 @@ private fun SessionManagerDialog(
                 TextButton(onClick = onNew) { FutureGlyph("plus", tint = FuturePalette.VioletBright, size = 18.dp); Spacer(Modifier.width(5.dp)); Text("新建", color = FuturePalette.VioletBright) }
             }
             Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).background(Color(0x241A2030))
-                    .border(1.dp, FuturePalette.Edge, RoundedCornerShape(15.dp)).padding(start = 12.dp, end = 6.dp),
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).background(spec.surfaceTint.copy(alpha = 0.55f))
+                    .border(1.dp, spec.surfaceEdge, RoundedCornerShape(15.dp)).padding(start = 12.dp, end = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                FutureGlyph("search", tint = FuturePalette.Muted, size = 17.dp)
+                FutureGlyph("search", tint = spec.muted, size = 17.dp)
                 BasicTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
@@ -351,8 +353,8 @@ private fun SessionManagerDialog(
                 visibleSessions.forEach { session ->
                     Row(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-                            .background(if (session.id == activeSessionId) Color(0x333F3971) else Color(0x171A2030))
-                            .border(1.dp, if (session.id == activeSessionId) Color(0x557D6ED4) else FuturePalette.Edge, RoundedCornerShape(16.dp))
+                            .background(if (session.id == activeSessionId) spec.accent.copy(alpha = 0.20f) else spec.surfaceTint.copy(alpha = 0.55f))
+                            .border(1.dp, if (session.id == activeSessionId) spec.accentBright.copy(alpha = 0.5f) else spec.surfaceEdge, RoundedCornerShape(16.dp))
                             .clickable(enabled = editingId != session.id) { onSelect(session.id) }
                             .padding(start = 12.dp, end = 5.dp, top = 7.dp, bottom = 7.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -436,28 +438,29 @@ private fun WelcomeContent(
 
 @Composable
 private fun HeroCard(configured: Boolean) {
+    val spec = LocalLiquidSpec.current
     Box(
         modifier = Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(30.dp)).padding(horizontal = 22.dp, vertical = 23.dp),
     ) {
         Column(modifier = Modifier.fillMaxWidth(0.78f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(
-                modifier = Modifier.clip(CircleShape).background(Color(0x267BD9F5)).padding(horizontal = 10.dp, vertical = 6.dp),
+                modifier = Modifier.clip(CircleShape).background(spec.cyan.copy(alpha = 0.14f)).padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.size(6.dp).clip(CircleShape).background(FuturePalette.Cyan))
+                Box(Modifier.size(6.dp).clip(CircleShape).background(spec.cyan))
                 Spacer(Modifier.width(7.dp))
-                Text(if (configured) "AI 助手已连接" else "开启你的 AI 空间", color = FuturePalette.Cyan, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                Text(if (configured) "AI 助手已连接" else "开启你的 AI 空间", color = spec.cyan, fontSize = 10.sp, fontWeight = FontWeight.Medium)
             }
             Text("让想法\n自然向前。", color = FuturePalette.Text, fontSize = 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.7).sp)
             Text("提问、写作、规划，或只是把脑海里的念头说出来。", color = FuturePalette.Muted, fontSize = 13.sp, lineHeight = 20.sp)
         }
         Box(
             modifier = Modifier.align(Alignment.CenterEnd).size(74.dp).clip(CircleShape)
-                .background(Brush.radialGradient(listOf(Color(0x668C75F3), Color(0x226D74D7), Color.Transparent)))
-                .border(1.dp, Color(0x44D8CFFF), CircleShape),
+                .background(Brush.radialGradient(listOf(spec.accent.copy(alpha = 0.40f), spec.accent.copy(alpha = 0.12f), Color.Transparent)))
+                .border(1.dp, spec.accentBright.copy(alpha = 0.30f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Box(Modifier.size(38.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Color(0xFFE2DBFF), Color(0xFF907AFF), Color(0xFF514A9C)))))
+            Box(Modifier.size(38.dp).clip(CircleShape).background(Brush.linearGradient(listOf(spec.accentBright, spec.accent, spec.cyan.copy(alpha = 0.7f)))))
             FutureGlyph("spark", tint = Color.White, size = 20.dp)
         }
     }
@@ -507,7 +510,9 @@ private fun Conversation(
     LazyColumn(
         state = listState,
         modifier = modifier,
-        contentPadding = PaddingValues(horizontal = 18.dp, vertical = if (compactSpacing) 9.dp else 16.dp),
+        // Messages run under the glass top bar and composer; the glass surfaces
+        // blur the real content passing behind them.
+        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 116.dp, bottom = 148.dp),
         verticalArrangement = Arrangement.spacedBy(if (compactSpacing) 8.dp else 14.dp),
     ) {
         itemsIndexed(messages) { index, message ->
@@ -526,26 +531,32 @@ private fun MessageBubble(
     val isUser = message.role == MessageRole.USER
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val spec = LocalLiquidSpec.current
     var copied by remember(message.text) { mutableStateOf(false) }
+    val bubbleShape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp, bottomEnd = if (isUser) 7.dp else 22.dp, bottomStart = if (isUser) 22.dp else 7.dp)
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom,
     ) {
         if (!isUser) {
-            Box(Modifier.padding(end = 8.dp).size(28.dp).clip(CircleShape).background(Color(0x338D78F2)), contentAlignment = Alignment.Center) {
-                FutureGlyph("spark", tint = FuturePalette.VioletBright, size = 14.dp)
+            Box(Modifier.padding(end = 8.dp).size(28.dp).clip(CircleShape).background(spec.accent.copy(alpha = 0.22f)), contentAlignment = Alignment.Center) {
+                FutureGlyph("spark", tint = spec.accentBright, size = 14.dp)
             }
         }
         Column(
             modifier = Modifier.widthIn(max = 330.dp).fillMaxWidth(0.86f)
-                .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp, bottomEnd = if (isUser) 7.dp else 22.dp, bottomStart = if (isUser) 22.dp else 7.dp))
-                .background(if (isUser) Brush.linearGradient(listOf(Color(0xFF705CC5), Color(0xFF51489B))) else Brush.verticalGradient(listOf(Color(0xD61B2032), Color(0xC5121728))))
-                .border(1.dp, if (isUser) Color(0x44D7CFFF) else FuturePalette.Edge, RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp, bottomEnd = if (isUser) 7.dp else 22.dp, bottomStart = if (isUser) 22.dp else 7.dp))
+                .clip(bubbleShape)
+                .then(
+                    if (isUser) Modifier.background(
+                        Brush.linearGradient(listOf(spec.accentBright.copy(alpha = 0.30f), spec.accent.copy(alpha = 0.16f))),
+                    ).border(1.dp, spec.accentBright.copy(alpha = 0.45f), bubbleShape)
+                    else Modifier.softSurface(bubbleShape),
+                )
                 .padding(horizontal = 16.dp, vertical = 13.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            Text(if (isUser) "你" else "GATHER AI", color = if (isUser) Color(0xFFDCD5FF) else FuturePalette.Cyan, fontSize = 9.sp, letterSpacing = 1.15.sp, fontWeight = FontWeight.SemiBold)
+            Text(if (isUser) "你" else "GATHER AI", color = if (isUser) spec.accentBright else spec.cyan, fontSize = 9.sp, letterSpacing = 1.15.sp, fontWeight = FontWeight.SemiBold)
             if (isUser) {
                 message.attachments.forEach { attachment ->
                     Text("📎 ${attachment.name}", color = FuturePalette.Cyan, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -632,12 +643,13 @@ private fun MarkdownMessage(text: String, onCopyCode: (String) -> Unit) {
 
 @Composable
 private fun CodeBlock(source: String, onCopy: (String) -> Unit) {
+    val spec = LocalLiquidSpec.current
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-            .background(Color(0xFF10131D)).border(1.dp, FuturePalette.Edge, RoundedCornerShape(14.dp)),
+            .background(spec.codeBlockBackground).border(1.dp, FuturePalette.Edge, RoundedCornerShape(14.dp)),
     ) {
         Row(
-            Modifier.fillMaxWidth().background(Color(0xFF1B2030)).padding(start = 12.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
+            Modifier.fillMaxWidth().background(spec.codeBlockHeader).padding(start = 12.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("代码", color = FuturePalette.Muted, fontSize = 10.sp, modifier = Modifier.weight(1f))
@@ -651,7 +663,7 @@ private fun CodeBlock(source: String, onCopy: (String) -> Unit) {
             Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState())
                 .horizontalScroll(rememberScrollState()).padding(12.dp),
         ) {
-            Text(source, color = Color(0xFFD8E6FF), fontSize = 12.sp, lineHeight = 18.sp, softWrap = false, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+            Text(source, color = spec.codeText, fontSize = 12.sp, lineHeight = 18.sp, softWrap = false, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
         }
     }
 }
@@ -725,7 +737,7 @@ private fun AttachmentPreview(attachment: ChatAttachment, onRemove: () -> Unit) 
     }
     Row(
         modifier = Modifier.widthIn(min = 145.dp, max = 220.dp).clip(RoundedCornerShape(15.dp))
-            .background(Color(0x44101421)).padding(7.dp),
+            .softSurface(RoundedCornerShape(15.dp)).padding(7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (thumbnail != null) Image(thumbnail, contentDescription = attachment.name, modifier = Modifier.size(40.dp).clip(RoundedCornerShape(9.dp)), contentScale = ContentScale.Crop)
@@ -752,6 +764,7 @@ private fun Composer(
     onListen: () -> Unit,
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
+    val spec = LocalLiquidSpec.current
     Column(
         modifier = Modifier.fillMaxWidth().imePadding().navigationBarsPadding().padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 8.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
@@ -790,8 +803,8 @@ private fun Composer(
             Spacer(Modifier.width(3.dp))
             Box(
                 modifier = Modifier.size(44.dp).clip(CircleShape)
-            .background(if (isLoading) Brush.linearGradient(listOf(Color(0xFF3C345A), Color(0xFF28243B))) else if (canSend) Brush.linearGradient(listOf(FuturePalette.Violet, Color(0xFF6351B5))) else Brush.linearGradient(listOf(Color(0xFF292C3A), Color(0xFF222532))))
-                    .border(1.dp, if (canSend || isLoading) Color(0x55D7CBFF) else Color(0x1AFFFFFF), CircleShape)
+            .background(if (isLoading) Brush.linearGradient(listOf(spec.accent.copy(alpha = 0.22f), spec.accent.copy(alpha = 0.10f))) else if (canSend) Brush.linearGradient(listOf(spec.accentBright, spec.accent)) else Brush.linearGradient(listOf(spec.surfaceTint.copy(alpha = 0.9f), spec.surfaceTint.copy(alpha = 0.75f))))
+                    .border(1.dp, if (canSend || isLoading) spec.accentBright.copy(alpha = 0.45f) else spec.surfaceEdge, CircleShape)
                     .clickable(enabled = isLoading || canSend, onClick = if (isLoading) onCancel else { { onSend(); keyboard?.hide(); Unit } }),
                 contentAlignment = Alignment.Center,
             ) {

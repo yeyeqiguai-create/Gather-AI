@@ -58,6 +58,7 @@ The project license has not yet been specified. Please check the repository for 
 - 图片、文本和 DOCX 附件导入；图片分析需在模型设置中显式启用视觉能力，未支持格式会提示原因。
 - 系统语音输入与 TTS 朗读、实际 Token/耗时/错误统计、可选单价下的费用估算。
 - 消息编辑/复制/分享、会话文本导出。
+- Liquid Reality 视觉体系：四套完整主题（Liquid Indigo、Obsidian、Arctic 浅色、Aurora）、真实液态玻璃渲染（背景采样模糊 + AGSL 边缘折射近似）与五种玻璃材质；用户可控制材质强度、低性能模式与动态背景，全部真实作用于渲染。
 - Verified Task Engine：从聊天进入任务中心，由当前路由模型提议结构化计划，再经本地依赖/Schema/权限/验证规则校验后执行；任务状态、检查点、恢复记录和审计事件持久化。
 - 首批任务工具只在本地运行：安全算术、JSON 必需字段检查、文本包含/排除规则、任务与验证证据查询。所有步骤均需明确验证，只有 `VERIFIED` 步骤能完成依赖或形成成功结论。
 

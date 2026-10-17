@@ -89,3 +89,11 @@ feature ──▶ domain ◀── data
 - `feature.task.TaskCenterScreen` 订阅 `TaskEngine.tasks` Flow，而非合成进度；展示计划、依赖、实际结果、证据、审核、等待授权、失败、恢复和最终结论。`MainActivity` 仅组装 task store、registry、当前 AI route 与屏幕入口。
 - 规划请求把目标和工具说明发送给所选 Provider；实际规划 usage（模型、Provider、Token、耗时、可估费用）使用 `taskId` 写入既有用量 ledger。首批工具本地执行，不产生模型费用。
 - `AppPreferences` 持久化任务模式、授权默认策略、步骤/重试上限、单步/总时限、计划复核与历史保留；工具自身 `requiresApproval` 始终优先于全局默认策略。
+
+## Liquid Reality Design System
+
+- `ui.liquid` 持有完整设计系统：`LiquidSpec`（每套主题的环境背景、玻璃材质参数、语义色与动效令牌）、四套主题规格（Liquid Indigo / Obsidian / Arctic / Aurora）、`GatherLiquidTheme` 根组合与 `GlassRenderPrefs` 用户渲染偏好。规范文档见 `DESIGN_SYSTEM.md`，与实现同步维护。
+- 主题标识 `domain.settings.VisualTheme` 为纯 Kotlin 枚举，经 `AppPreferences` 加密持久化；旧存储缺失该字段时按 `themeMode` 迁移（LIGHT→Arctic，其余→Liquid Indigo）。
+- `LiquidStage` 把页面分为 source（环境背景 + 滚动内容，经 `Modifier.liquidSource` 记录进 GraphicsLayer）与 overlay（固定玻璃表面）。`Modifier.glassSurface` 采样 source 层并经 RenderEffect 真实模糊（API 31+），叠加 tint、镜面与边缘高光；Liquid 材质在 API 33+ 经 AGSL RuntimeShader 做边缘折射近似。
+- 位于 source 内的滚动内容使用 `Modifier.softSurface`（仅 tint，无模糊），避免递归采样与逐卡片模糊开销；对话框窗口无 stage source，自动退化为 tint-only。低性能模式关闭实时模糊与折射，仅保留主题配色。
+- 兼容层 `ui.theme.FuturePalette` / `glassPanel` / `FutureBackdrop` 委托到同一设计系统；新代码应直接使用 `ui.liquid` 令牌。页面内禁止硬编码颜色、圆角与动画参数。

@@ -1,18 +1,14 @@
 package com.tim.futureai.ui.theme
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -21,82 +17,55 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.tim.futureai.ui.liquid.AmbientBackdrop
+import com.tim.futureai.ui.liquid.GlassMaterial
+import com.tim.futureai.ui.liquid.LocalLiquidSpec
+import com.tim.futureai.ui.liquid.LiquidIndigoSpec
+import com.tim.futureai.ui.liquid.LiquidVisualTheme
+import com.tim.futureai.ui.liquid.glassSurface
 
-data class FutureColorTokens(
-    val night: Color, val deepBlue: Color, val panel: Color, val panelSoft: Color, val edge: Color,
-    val violet: Color, val violetBright: Color, val cyan: Color, val text: Color, val muted: Color,
-    val success: Color, val danger: Color, val backdropEnd: Color,
-)
+/**
+ * Compatibility layer over the Liquid Reality design system.
+ *
+ * Existing screens read [FuturePalette] and use [glassPanel]; both now
+ * delegate to the active Liquid theme so every screen automatically follows
+ * the four-theme system. New code should prefer `ui.liquid` tokens directly.
+ */
 
-val DarkFutureColors = FutureColorTokens(
-    Color(0xFF080A12), Color(0xFF10152A), Color(0xCC171C2D), Color(0x991C2236), Color(0x36DDE3FF),
-    Color(0xFF9B7BFF), Color(0xFFB7A1FF), Color(0xFF7BD9F5), Color(0xFFF4F2FF), Color(0xFFA6AAC0),
-    Color(0xFF8AE0C2), Color(0xFFFF9BAF), Color(0xFF090B13),
-)
-val LightFutureColors = FutureColorTokens(
-    Color(0xFFF5F6FC), Color(0xFFE9ECF7), Color(0xF7FFFFFF), Color(0xEFFFFFFF), Color(0x33484A60),
-    Color(0xFF6549C7), Color(0xFF5338B4), Color(0xFF087B9B), Color(0xFF171A29), Color(0xFF575D70),
-    Color(0xFF16785B), Color(0xFFB32645), Color(0xFFF1F3FA),
-)
-val LocalFutureColors = staticCompositionLocalOf { DarkFutureColors }
+val LocalFutureColors = staticCompositionLocalOf { LiquidIndigoSpec }
 
 object FuturePalette {
-    val Night: Color @Composable get() = LocalFutureColors.current.night
-    val DeepBlue: Color @Composable get() = LocalFutureColors.current.deepBlue
-    val Panel: Color @Composable get() = LocalFutureColors.current.panel
-    val PanelSoft: Color @Composable get() = LocalFutureColors.current.panelSoft
-    val Edge: Color @Composable get() = LocalFutureColors.current.edge
-    val Violet: Color @Composable get() = LocalFutureColors.current.violet
-    val VioletBright: Color @Composable get() = LocalFutureColors.current.violetBright
-    val Cyan: Color @Composable get() = LocalFutureColors.current.cyan
-    val Text: Color @Composable get() = LocalFutureColors.current.text
-    val Muted: Color @Composable get() = LocalFutureColors.current.muted
-    val Success: Color @Composable get() = LocalFutureColors.current.success
-    val Danger: Color @Composable get() = LocalFutureColors.current.danger
+    val Night: Color @Composable get() = LocalLiquidSpec.current.ambientMiddle
+    val DeepBlue: Color @Composable get() = LocalLiquidSpec.current.ambientTop
+    val Panel: Color @Composable get() = LocalLiquidSpec.current.surfaceTint
+    val PanelSoft: Color @Composable get() = LocalLiquidSpec.current.surfaceTint.copy(alpha = LocalLiquidSpec.current.surfaceTintAlpha * 0.75f)
+    val Edge: Color @Composable get() = LocalLiquidSpec.current.surfaceEdge
+    val Violet: Color @Composable get() = LocalLiquidSpec.current.accent
+    val VioletBright: Color @Composable get() = LocalLiquidSpec.current.accentBright
+    val Cyan: Color @Composable get() = LocalLiquidSpec.current.cyan
+    val Text: Color @Composable get() = LocalLiquidSpec.current.text
+    val Muted: Color @Composable get() = LocalLiquidSpec.current.muted
+    val Success: Color @Composable get() = LocalLiquidSpec.current.success
+    val Danger: Color @Composable get() = LocalLiquidSpec.current.danger
+    val Warning: Color @Composable get() = LocalLiquidSpec.current.warning
 }
 
 @Composable
 fun FutureBackdrop(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    0f to FuturePalette.DeepBlue,
-                    0.48f to FuturePalette.Night,
-                    1f to LocalFutureColors.current.backdropEnd,
-                ),
-            ),
-    ) {
-        Canvas(Modifier.fillMaxSize()) {
-            drawCircle(
-                Brush.radialGradient(
-                    colors = listOf(Color(0x332F6AE6), Color.Transparent),
-                    center = Offset(size.width * 0.92f, size.height * 0.12f),
-                    radius = size.width * 0.82f,
-                ),
-                radius = size.width * 0.82f,
-                center = Offset(size.width * 0.92f, size.height * 0.12f),
-            )
-            drawCircle(
-                Brush.radialGradient(
-                    colors = listOf(Color(0x292F1B72), Color.Transparent),
-                    center = Offset(size.width * 0.02f, size.height * 0.62f),
-                    radius = size.width * 0.72f,
-                ),
-                radius = size.width * 0.72f,
-                center = Offset(size.width * 0.02f, size.height * 0.62f),
-            )
-        }
+    Box(modifier.fillMaxSize()) {
+        AmbientBackdrop()
         content()
     }
 }
 
+/**
+ * Legacy glass panel. Routes to the real Liquid glass pipeline; surfaces that
+ * are part of a recorded stage source (scrolling cards) automatically degrade
+ * to the fast tint-only material.
+ */
 @Composable
-fun Modifier.glassPanel(shape: RoundedCornerShape = RoundedCornerShape(24.dp)): Modifier {
-    val colors = LocalFutureColors.current
-    return background(Brush.verticalGradient(listOf(colors.panel, colors.panelSoft)), shape)
-        .border(1.dp, Brush.verticalGradient(listOf(colors.edge, colors.edge.copy(alpha = 0.25f))), shape)
+fun Modifier.glassPanel(shape: androidx.compose.foundation.shape.RoundedCornerShape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)): Modifier {
+    return glassSurface(GlassMaterial.FROSTED, shape)
 }
 
 @Composable
@@ -220,7 +189,7 @@ fun FutureGlyph(
             }
             "delete" -> {
                 line(4f, 7f, 20f, 7f, 1.8f)
-                line(9f, 4f, 15f, 4f, 1.8f)
+                line(9f, 4f, 15f, 4f, (1.8f))
                 drawRoundRect(tint, topLeft = point(6f, 8f), size = androidx.compose.ui.geometry.Size(12f * unit, 13f * unit), cornerRadius = androidx.compose.ui.geometry.CornerRadius(2f * unit), style = Stroke(1.7f * unit))
                 line(10f, 11f, 10f, 17f, 1.4f); line(14f, 11f, 14f, 17f, 1.4f)
             }
@@ -238,6 +207,31 @@ fun FutureGlyph(
                     close()
                 }
                 drawPath(path, tint, style = Stroke(1.6f * unit, cap = StrokeCap.Round))
+            }
+            "play" -> {
+                val path = Path().apply {
+                    moveTo(8f * unit, 5f * unit)
+                    lineTo(19f * unit, 12f * unit)
+                    lineTo(8f * unit, 19f * unit)
+                    close()
+                }
+                drawPath(path, tint, style = Stroke(1.7f * unit, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+            }
+            "pause" -> {
+                line(9f, 5f, 9f, 19f, 2.2f)
+                line(15f, 5f, 15f, 19f, 2.2f)
+            }
+            "shield" -> {
+                val path = Path().apply {
+                    moveTo(12f * unit, 3f * unit)
+                    lineTo(20f * unit, 6f * unit)
+                    lineTo(20f * unit, 12f * unit)
+                    cubicTo(20f * unit, 17f * unit, 16f * unit, 20f * unit, 12f * unit, 21f * unit)
+                    cubicTo(8f * unit, 20f * unit, 4f * unit, 17f * unit, 4f * unit, 12f * unit)
+                    lineTo(4f * unit, 6f * unit)
+                    close()
+                }
+                drawPath(path, tint, style = Stroke(1.7f * unit, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
             }
         }
     }

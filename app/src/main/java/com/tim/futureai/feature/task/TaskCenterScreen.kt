@@ -1,6 +1,7 @@
 package com.tim.futureai.feature.task
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,7 +51,9 @@ import com.tim.futureai.domain.task.TaskStatus
 import com.tim.futureai.domain.task.TaskStep
 import com.tim.futureai.domain.task.TaskStepStatus
 import com.tim.futureai.domain.task.VerificationStatus
-import com.tim.futureai.ui.theme.FutureBackdrop
+import com.tim.futureai.ui.liquid.LiquidStage
+import com.tim.futureai.ui.liquid.LocalLiquidSpec
+import com.tim.futureai.ui.liquid.softSurface
 import com.tim.futureai.ui.theme.FutureGlyph
 import com.tim.futureai.ui.theme.FuturePalette
 import com.tim.futureai.ui.theme.glassPanel
@@ -76,10 +81,11 @@ fun TaskCenterScreen(
     }
     val selected = tasks.firstOrNull { it.task.id == selectedId }
 
-    FutureBackdrop(modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize()) {
+    LiquidStage(
+        modifier = modifier.fillMaxSize(),
+        overlay = {
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp),
+                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(Modifier.size(42.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onBack), contentAlignment = Alignment.Center) {
@@ -89,9 +95,21 @@ fun TaskCenterScreen(
                     Text("任务中心", color = FuturePalette.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                     Text("Verified Task Engine · 本地工具执行与证据校验", color = FuturePalette.Muted, fontSize = 10.sp)
                 }
+                if (tasks.any { it.task.status == TaskStatus.WAITING_FOR_APPROVAL }) {
+                    Row(
+                        Modifier.clip(RoundedCornerShape(11.dp)).background(FuturePalette.Warning.copy(alpha = 0.16f)).padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(7.dp).clip(CircleShape).background(FuturePalette.Warning))
+                        Spacer(Modifier.width(6.dp))
+                        Text("待确认", color = FuturePalette.Warning, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
             }
+        },
+        source = {
             Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 4.dp),
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 18.dp, end = 18.dp, top = 78.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -178,8 +196,8 @@ fun TaskCenterScreen(
                 }
                 Spacer(Modifier.height(18.dp))
             }
-        }
-    }
+        },
+    )
 
     approvalTarget?.let { (aggregate, step) ->
         val tool = step.executorId
@@ -243,7 +261,7 @@ private fun TaskDetails(
                 color = FuturePalette.Cyan, fontSize = 10.sp)
         }
         aggregate.steps.forEachIndexed { index, step ->
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(13.dp)).background(FuturePalette.Panel).padding(11.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            StepTimelineRow(step, index, aggregate.steps.size) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("${index + 1}. ${step.title}", color = FuturePalette.Text, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
                     Text(step.status.label(), color = stepStatusColor(step.status), fontSize = 10.sp)
@@ -298,8 +316,52 @@ private fun TaskDetails(
 
 @Composable
 private fun StatusCard(text: String, failed: Boolean = false) {
-    Text(text, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(FuturePalette.Panel).padding(12.dp),
-        color = if (failed) FuturePalette.Danger else FuturePalette.Cyan, fontSize = 11.sp, lineHeight = 16.sp)
+    val spec = LocalLiquidSpec.current
+    Text(text, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (failed) spec.danger.copy(alpha = 0.14f) else spec.accent.copy(alpha = 0.12f)).border(1.dp, if (failed) spec.danger.copy(alpha = 0.5f) else spec.accent.copy(alpha = 0.4f), RoundedCornerShape(14.dp)).padding(12.dp),
+        color = if (failed) spec.danger else spec.cyan, fontSize = 11.sp, lineHeight = 16.sp)
+}
+
+/**
+ * Timeline step row: a status rail on the left connects steps; status is
+ * carried by glyph + color + text label (not color alone) using the active
+ * Liquid theme's semantic colors.
+ */
+@Composable
+private fun StepTimelineRow(step: TaskStep, index: Int, total: Int, content: @Composable () -> Unit) {
+    val spec = LocalLiquidSpec.current
+    val railColor = stepStatusColor(step.status)
+    val statusGlyph = when (step.status) {
+        TaskStepStatus.SUCCEEDED -> "check"
+        TaskStepStatus.FAILED -> "delete"
+        TaskStepStatus.UNKNOWN -> "eye_off"
+        TaskStepStatus.CANCELLED -> "stop"
+        TaskStepStatus.WAITING_FOR_APPROVAL -> "shield"
+        TaskStepStatus.RUNNING, TaskStepStatus.VERIFYING -> "spark"
+        else -> null
+    }
+    Row(verticalAlignment = Alignment.Top) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(26.dp)) {
+            Box(
+                Modifier.size(22.dp).clip(CircleShape)
+                    .background(railColor.copy(alpha = if (statusGlyph == null) 0.10f else 0.18f))
+                    .border(1.dp, if (statusGlyph == null) railColor.copy(alpha = 0.4f) else railColor, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (statusGlyph != null) FutureGlyph(statusGlyph, tint = railColor, size = 13.dp)
+                else Text("${index + 1}", color = railColor, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            }
+            if (index < total - 1) {
+                Box(Modifier.width(2.dp).height(44.dp).background(railColor.copy(alpha = 0.22f), RoundedCornerShape(1.dp)))
+            }
+        }
+        Spacer(Modifier.width(9.dp))
+        Column(
+            Modifier.weight(1f).softSurface(RoundedCornerShape(13.dp)).padding(11.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            content()
+        }
+    }
 }
 
 private fun TaskStatus.label() = when (this) {
@@ -329,18 +391,18 @@ private fun TaskStepStatus.label() = when (this) {
 
 @Composable
 private fun statusColor(status: TaskStatus) = when (status) {
-    TaskStatus.SUCCEEDED -> FuturePalette.Cyan
+    TaskStatus.SUCCEEDED -> FuturePalette.Success
     TaskStatus.FAILED, TaskStatus.CANCELLED -> FuturePalette.Danger
-    TaskStatus.WAITING_FOR_APPROVAL -> Color(0xFFFFC96B)
+    TaskStatus.WAITING_FOR_APPROVAL -> FuturePalette.Warning
     TaskStatus.RUNNING, TaskStatus.VERIFYING -> FuturePalette.VioletBright
     else -> FuturePalette.Muted
 }
 
 @Composable
 private fun stepStatusColor(status: TaskStepStatus) = when (status) {
-    TaskStepStatus.SUCCEEDED -> FuturePalette.Cyan
+    TaskStepStatus.SUCCEEDED -> FuturePalette.Success
     TaskStepStatus.FAILED, TaskStepStatus.UNKNOWN, TaskStepStatus.CANCELLED -> FuturePalette.Danger
-    TaskStepStatus.WAITING_FOR_APPROVAL -> Color(0xFFFFC96B)
+    TaskStepStatus.WAITING_FOR_APPROVAL -> FuturePalette.Warning
     TaskStepStatus.RUNNING, TaskStepStatus.VERIFYING -> FuturePalette.VioletBright
     else -> FuturePalette.Muted
 }

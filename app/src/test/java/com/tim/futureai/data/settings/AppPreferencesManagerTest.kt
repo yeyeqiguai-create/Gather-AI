@@ -6,6 +6,7 @@ import com.tim.futureai.domain.settings.RoutingMode
 import com.tim.futureai.domain.settings.SettingsSection
 import com.tim.futureai.domain.settings.SettingsSearchRegistry
 import com.tim.futureai.domain.settings.ThemeMode
+import com.tim.futureai.domain.settings.VisualTheme
 import com.tim.futureai.domain.task.TaskAuthorizationPolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -78,6 +79,34 @@ class AppPreferencesManagerTest {
         assertFalse(loaded.requireTaskPlanReview)
         assertFalse(loaded.retainTaskHistory)
         assertTrue(SettingsSearchRegistry.search("任务引擎").any { it.section == SettingsSection.TASKS })
+    }
+
+    @Test fun liquidThemeSettingsPersistAndGlassIntensityIsBounded() {
+        val store = MemoryStore()
+        val manager = AppPreferencesManager(store)
+        val requested = AppPreferences(
+            visualTheme = VisualTheme.AURORA,
+            glassIntensity = 1.7f,
+            lowPerformanceMode = true,
+            dynamicBackground = true,
+        )
+        assertTrue(manager.save(requested))
+        val loaded = AppPreferencesManager(store).load()
+        assertEquals(VisualTheme.AURORA, loaded.visualTheme)
+        assertEquals(1f, loaded.glassIntensity)
+        assertTrue(loaded.lowPerformanceMode)
+        assertTrue(loaded.dynamicBackground)
+        assertTrue(manager.save(AppPreferences(glassIntensity = -0.5f)))
+        assertEquals(0f, AppPreferencesManager(store).load().glassIntensity)
+    }
+
+    @Test fun legacyThemeModeMapsToVisualThemeWhenFieldMissing() {
+        val store = MemoryStore()
+        val legacyJson = "{\"themeMode\":\"LIGHT\",\"fontScale\":\"1.0\"}"
+        store.values[AppPreferencesManager.KEY] = legacyJson
+        assertEquals(VisualTheme.ARCTIC, AppPreferencesManager(store).load().visualTheme)
+        store.values[AppPreferencesManager.KEY] = "{\"themeMode\":\"DARK\",\"fontScale\":\"1.0\"}"
+        assertEquals(VisualTheme.LIQUID_INDIGO, AppPreferencesManager(store).load().visualTheme)
     }
 
     @Test fun globalAutomaticModeOrDisabledInheritanceRoutesNewSessionsAutomatically() {

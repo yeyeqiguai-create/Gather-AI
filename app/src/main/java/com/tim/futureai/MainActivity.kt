@@ -81,7 +81,10 @@ import com.tim.futureai.platform.files.AttachmentImporter
 import com.tim.futureai.platform.speech.SpeechController
 import com.tim.futureai.platform.speech.SpeechRecognitionMessages
 import com.tim.futureai.ui.theme.FuturePalette
-import com.tim.futureai.ui.theme.GatherAITheme
+import com.tim.futureai.ui.liquid.GatherLiquidTheme
+import com.tim.futureai.ui.liquid.GlassRenderPrefs
+import com.tim.futureai.ui.liquid.LiquidVisualTheme
+import com.tim.futureai.domain.settings.VisualTheme
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
@@ -162,9 +165,23 @@ class MainActivity : ComponentActivity() {
         viewModel.setHistoryLimit(appPreferencesManager.load().historyLimit)
         setContent {
             var appPreferences by remember { mutableStateOf(appPreferencesManager.load()) }
-            GatherAITheme(appPreferences.themeMode, appPreferences.fontScale) {
-                val lightSystemBars = appPreferences.themeMode == com.tim.futureai.domain.settings.ThemeMode.LIGHT ||
-                    (appPreferences.themeMode == com.tim.futureai.domain.settings.ThemeMode.SYSTEM && !androidx.compose.foundation.isSystemInDarkTheme())
+            val systemAnimationsEnabled = remember {
+                val motionEnabled = if (Build.VERSION.SDK_INT >= 26) ValueAnimator.areAnimatorsEnabled()
+                else Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f
+                motionEnabled
+            }
+            val reducedMotion = !appPreferences.animationsEnabled || !systemAnimationsEnabled
+            GatherLiquidTheme(
+                    appPreferences.visualTheme,
+                    appPreferences.fontScale,
+                    GlassRenderPrefs(
+                        intensity = appPreferences.glassIntensity,
+                        lowPerformance = appPreferences.lowPerformanceMode,
+                        dynamicBackground = appPreferences.dynamicBackground,
+                        reduceMotion = reducedMotion,
+                    ),
+                ) {
+                val lightSystemBars = appPreferences.visualTheme == VisualTheme.ARCTIC
                 SideEffect {
                     WindowCompat.getInsetsController(window, window.decorView).apply {
                         isAppearanceLightStatusBars = lightSystemBars
@@ -210,11 +227,6 @@ class MainActivity : ComponentActivity() {
                 var speakingMessageKey by remember { mutableStateOf<String?>(null) }
                 val composeScope = rememberCoroutineScope()
                 val taskHistory by taskEngine.tasks.collectAsState()
-                val systemAnimationsEnabled = remember {
-                    val motionEnabled = if (Build.VERSION.SDK_INT >= 26) ValueAnimator.areAnimatorsEnabled()
-                    else Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f
-                    motionEnabled
-                }
                 val screenTransitionMillis = if (appPreferences.animationsEnabled && systemAnimationsEnabled) 180 else 0
                 val speechController = remember {
                     SpeechController(applicationContext,

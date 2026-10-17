@@ -51,7 +51,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.tim.futureai.ui.theme.FutureBackdrop
+import com.tim.futureai.ui.liquid.LiquidStage
+import com.tim.futureai.ui.liquid.LocalLiquidSpec
 import com.tim.futureai.ui.theme.FutureGlyph
 import com.tim.futureai.ui.theme.FuturePalette
 import com.tim.futureai.ui.theme.glassPanel
@@ -96,13 +97,11 @@ fun AiSettingsScreen(
     var showApiKey by remember { mutableStateOf(false) }
     var evidenceMenuExpanded by remember { mutableStateOf(false) }
     var deleteProfileId by remember { mutableStateOf<String?>(null) }
-    FutureBackdrop(modifier) {
-        Scaffold(
-            modifier = Modifier.fillMaxSize(),
-            containerColor = Color.Transparent,
-            contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
-            topBar = {
-                Column(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 18.dp, end = 20.dp, top = 10.dp, bottom = 14.dp)) {
+    val spec = LocalLiquidSpec.current
+    LiquidStage(
+        modifier = modifier,
+        overlay = {
+            Column(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 18.dp, end = 20.dp, top = 10.dp, bottom = 14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             Modifier.size(42.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onBack),
@@ -115,7 +114,7 @@ fun AiSettingsScreen(
                         }
                         val configured = settings.isConfigured
                         Row(
-                            modifier = Modifier.clip(CircleShape).background(if (configured) Color(0x1F8AE0C2) else Color(0x1FA6AAC0)).padding(horizontal = 10.dp, vertical = 7.dp),
+                            modifier = Modifier.clip(CircleShape).background(if (configured) FuturePalette.Success.copy(alpha = 0.16f) else FuturePalette.Muted.copy(alpha = 0.16f)).padding(horizontal = 10.dp, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Box(Modifier.size(6.dp).clip(CircleShape).background(if (configured) FuturePalette.Success else FuturePalette.Muted))
@@ -124,10 +123,10 @@ fun AiSettingsScreen(
                         }
                     }
                 }
-            },
-        ) { padding ->
+        },
+        source = {
             Column(
-                modifier = Modifier.fillMaxSize().padding(padding).imePadding().navigationBarsPadding()
+                modifier = Modifier.fillMaxSize().statusBarsPadding().padding(top = 86.dp).imePadding().navigationBarsPadding()
                     .verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(17.dp),
             ) {
@@ -152,8 +151,8 @@ fun AiSettingsScreen(
                     }
                     profiles.forEach { profile ->
                         Row(
-                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-                                .background(if (profile.id == settings.id) Color(0x338B73EA) else Color(0x22101421))
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                                .background(if (profile.id == settings.id) spec.accent.copy(alpha = 0.22f) else spec.surfaceTint.copy(alpha = 0.45f))
                                 .clickable { onSelectProfile(profile.id) }.padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -344,7 +343,7 @@ fun AiSettingsScreen(
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
                     ) {
                         Box(
-                            Modifier.fillMaxSize().clip(RoundedCornerShape(17.dp)).background(Brush.linearGradient(listOf(Color(0xFF8B73EA), Color(0xFF5B4AAE)))),
+                            Modifier.fillMaxSize().clip(RoundedCornerShape(17.dp)).background(Brush.linearGradient(listOf(spec.accentBright, spec.accent))),
                             contentAlignment = Alignment.Center,
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -380,8 +379,9 @@ fun AiSettingsScreen(
                 }
                 Spacer(Modifier.height(8.dp))
             }
-        }
-        deleteProfileId?.let { id ->
+        },
+    )
+    deleteProfileId?.let { id ->
             val name = profiles.firstOrNull { it.id == id }?.name ?: "该服务商"
             val linked = sessionReferences[id] ?: 0
             AlertDialog(
@@ -392,7 +392,6 @@ fun AiSettingsScreen(
                 dismissButton = { TextButton(onClick = { deleteProfileId = null }) { Text("取消") } },
             )
         }
-    }
 }
 
 @Composable

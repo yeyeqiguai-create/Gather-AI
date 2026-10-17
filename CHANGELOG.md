@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.1.7.01 (Revise1) — Beta / Internal Development
+
+- Project Liquid Reality: full visual identity rebuild with a shared design system (`DESIGN_SYSTEM.md` + `ui.liquid`), not a color swap.
+- Four complete, persistable themes — Liquid Indigo (default), Obsidian, Arctic (light), Aurora — each with its own ambient backdrop, glass material parameters, semantic colors and motion tokens; switching themes changes the whole atmosphere.
+- Real liquid glass rendering: stages record background + scrolling content into a GraphicsLayer; fixed glass surfaces (top bars, composer, headers, prototype panels) sample and truly blur what is behind them via RenderEffect (API 31+), with tint, specular and edge highlight passes.
+- AGSL edge refraction on the Liquid material (API 33+): background is displaced outward near panel edges for a thickness/refraction approximation; gracefully disabled below API 33 or on shader failure (blur + highlight only).
+- Five reusable materials — Clear, Frosted, Liquid, Dark, Accent — with per-theme parameters; scrolling content uses fast tint-only soft surfaces, and low-performance mode / dialogs fall back to tint-only glass.
+- Chat home rebuilt on a glass stage: messages scroll under the glass top bar and composer (both blur real content), theme-aware bubbles, code blocks and input states; session manager and dialogs follow the same tokens.
+- Settings center rebuilt on glass stages with a new Appearance page: theme picker with live preview cards, glass intensity slider (real blur radius/tint control), low-performance mode, dynamic background drift (Aurora), plus existing font/spacing/animation controls.
+- Task center rebuilt: status rail timeline with per-step glyphs + colors + labels (not color alone), waiting-for-approval badge in the header, theme-driven status colors.
+- Liquid Glass Prototype page (Settings → Appearance) for material acceptance: textured scrolling test field, all five materials, multi-layer glass, scroll-through blur and edge refraction.
+- New user controls are real render behavior: glass intensity, low-performance mode and dynamic background change actual rendering, persisted in encrypted preferences with legacy theme migration.
+
+### Scope notes
+
+- True refraction is an AGSL approximation of edge displacement; it is not full physical light simulation and is disabled on API < 33.
+- Dialogs render in separate windows and use tint-only glass (no background sampling); documented in DESIGN_SYSTEM.md.
+- No backend/business logic changes: provider configuration, key encryption, chat flow, task engine state machine and update flow behavior are unchanged.
+
 ## v0.1.6.01 (Revise1) — Beta / Internal Development
 
 - Added a verified task execution core: constrained task states, dependency-checked plans, persisted checkpoints and audit events, guarded retries, pause/resume/cancel, and restart recovery.

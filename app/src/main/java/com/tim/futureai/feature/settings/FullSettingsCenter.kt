@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -54,11 +56,14 @@ import com.tim.futureai.domain.settings.SettingsSection
 import com.tim.futureai.domain.settings.SettingsSearchEntry
 import com.tim.futureai.domain.settings.SettingsSearchRegistry
 import com.tim.futureai.domain.settings.ThemeMode
+import com.tim.futureai.domain.settings.VisualTheme
 import com.tim.futureai.domain.task.TaskAuthorizationPolicy
 import com.tim.futureai.domain.usage.UsageSnapshot
 import com.tim.futureai.domain.usage.UsageRange
 import com.tim.futureai.feature.update.UpdateCheckResult
-import com.tim.futureai.ui.theme.FutureBackdrop
+import com.tim.futureai.ui.liquid.LiquidStage
+import com.tim.futureai.ui.liquid.LocalLiquidSpec
+import com.tim.futureai.ui.liquid.spec
 import com.tim.futureai.ui.theme.FutureGlyph
 import com.tim.futureai.ui.theme.FuturePalette
 import com.tim.futureai.ui.theme.glassPanel
@@ -106,11 +111,16 @@ fun FullSettingsCenter(
     var section by rememberSaveable { mutableStateOf(SettingsSection.GENERAL) }
     var query by rememberSaveable { mutableStateOf("") }
     var confirmation by remember { mutableStateOf<SettingsSection?>(null) }
+    var showPrototype by rememberSaveable { mutableStateOf(false) }
     val stateHolder = rememberSaveableStateHolder()
     val transitionMillis = if (preferences.animationsEnabled && animationsEnabledBySystem) 160 else 0
 
-    FutureBackdrop(Modifier.fillMaxSize()) {
-        AnimatedContent(section, transitionSpec = { fadeIn(tween(transitionMillis)) togetherWith fadeOut(tween(transitionMillis)) }, label = "settings-category") { target ->
+    if (showPrototype) {
+        LiquidPrototypeScreen(onBack = { showPrototype = false })
+        return
+    }
+
+    AnimatedContent(section, transitionSpec = { fadeIn(tween(transitionMillis)) togetherWith fadeOut(tween(transitionMillis)) }, label = "settings-category") { target ->
             stateHolder.SaveableStateProvider(target.name) {
                 if (target == SettingsSection.PROVIDERS) {
                     providerContent { section = SettingsSection.GENERAL }
@@ -125,7 +135,7 @@ fun FullSettingsCenter(
                             onQuery = { query = it }, onOpen = { section = it }, onCopyVersion = onCopyVersion,
                             onReset = { confirmation = SettingsSection.GENERAL }, providerCount = providerCount, profiles = profiles,
                         )
-                        SettingsSection.APPEARANCE -> AppearancePage(preferences, onPreferencesChanged)
+                        SettingsSection.APPEARANCE -> AppearancePage(preferences, onPreferencesChanged, onOpenPrototype = { showPrototype = true })
                         SettingsSection.CHAT -> ChatPage(preferences, onPreferencesChanged, sessionCount,
                             onClearHistory = { confirmation = SettingsSection.CHAT })
                         SettingsSection.MODEL_ROUTING -> RoutingPage(preferences, onPreferencesChanged, profiles)
@@ -152,7 +162,6 @@ fun FullSettingsCenter(
                 }
             }
         }
-    }
 
     confirmation?.let { action ->
         val (title, body, button) = when (action) {
@@ -184,21 +193,31 @@ fun FullSettingsCenter(
 
 @Composable
 private fun SettingsPageFrame(title: String, onBack: () -> Unit, content: @Composable () -> Unit) {
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(42.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onBack), contentAlignment = Alignment.Center) {
-                FutureGlyph("back", tint = FuturePalette.Text, size = 19.dp)
+    LiquidStage(
+        overlay = {
+            Row(
+                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(42.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onBack), contentAlignment = Alignment.Center) {
+                    FutureGlyph("back", tint = FuturePalette.Text, size = 19.dp)
+                }
+                Column(Modifier.weight(1f).padding(start = 13.dp)) {
+                    Text(title, color = FuturePalette.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Gather AI · Liquid Reality", color = FuturePalette.Muted, fontSize = 10.sp)
+                }
             }
-            Column(Modifier.weight(1f).padding(start = 13.dp)) {
-                Text(title, color = FuturePalette.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                Text("Gather AI · 全量设置", color = FuturePalette.Muted, fontSize = 10.sp)
+        },
+        source = {
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 18.dp, end = 18.dp, top = 78.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                content()
+                Spacer(Modifier.height(10.dp))
             }
-        }
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            content()
-            Spacer(Modifier.height(10.dp))
-        }
-    }
+        },
+    )
 }
 
 @Composable
@@ -329,15 +348,67 @@ private fun SearchResultCard(entry: SettingsSearchEntry, onClick: () -> Unit) {
 }
 
 @Composable
-private fun AppearancePage(p: AppPreferences, change: (AppPreferences) -> Unit) {
-    InfoCard("外观预览", "主题和字体设置立即应用并加密持久化；聊天列表间距开关也会传入聊天布局。")
-    SettingChoice("主题模式", listOf("深色" to ThemeMode.DARK, "浅色" to ThemeMode.LIGHT, "跟随系统" to ThemeMode.SYSTEM), p.themeMode) { change(p.copy(themeMode = it)) }
+private fun AppearancePage(p: AppPreferences, change: (AppPreferences) -> Unit, onOpenPrototype: () -> Unit) {
+    InfoCard("外观预览", "主题、材质和动效设置立即应用并加密持久化；所有页面共享同一套 Liquid 设计令牌。")
+    ThemePicker(p.visualTheme) { change(p.copy(visualTheme = it)) }
+    Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("玻璃材质强度", color = FuturePalette.Text, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+            Text("${(p.glassIntensity * 100).toInt()}%", color = FuturePalette.Cyan, fontSize = 11.sp)
+        }
+        Slider(value = p.glassIntensity, onValueChange = { change(p.copy(glassIntensity = it)) }, valueRange = 0f..1f)
+        Text("控制模糊半径与边缘高光；0% 时玻璃退化为不透明的纯净表面。", color = FuturePalette.Muted, fontSize = 10.sp, lineHeight = 15.sp)
+    }
+    PreferenceSwitch("低性能模式", "停用实时模糊与折射，保留完整主题配色；卡顿设备或省电时使用。", p.lowPerformanceMode) { change(p.copy(lowPerformanceMode = it)) }
+    PreferenceSwitch("动态背景", "极光等主题的光斑将缓慢漂移；关闭后为静态渲染。", p.dynamicBackground) { change(p.copy(dynamicBackground = it)) }
     PreferenceSwitch("紧凑聊天间距", "减少消息列表纵向留白", p.compactChat) { change(p.copy(compactChat = it)) }
     PreferenceSwitch("界面过渡动画", "遵循系统关闭动画设置", p.animationsEnabled) { change(p.copy(animationsEnabled = it)) }
     Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).padding(14.dp)) {
         Text("字体大小 · ${(p.fontScale * 100).toInt()}%", color = FuturePalette.Text, fontSize = 13.sp)
         Slider(value = p.fontScale, onValueChange = { change(p.copy(fontScale = it)) }, valueRange = 0.85f..1.25f)
         Text("控件触控区域保持不变；超长文本仍可滚动。", color = FuturePalette.Muted, fontSize = 10.sp)
+    }
+    ActionButton("液态玻璃原型 · 材质验收", onClick = onOpenPrototype)
+}
+
+@Composable
+private fun ThemePicker(selected: VisualTheme, onSelect: (VisualTheme) -> Unit) {
+    Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("主题", color = FuturePalette.Text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        VisualTheme.entries.chunked(2).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { theme -> ThemePreviewCard(theme, theme == selected, Modifier.weight(1f)) { onSelect(theme) } }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemePreviewCard(theme: VisualTheme, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val spec = theme.spec()
+    Column(
+        modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(Brush.verticalGradient(listOf(spec.ambientTop, spec.ambientMiddle, spec.ambientBottom)))
+            .border(
+                width = if (selected) 2.dp else 1.dp,
+                brush = Brush.linearGradient(listOf(if (selected) spec.accentBright else spec.surfaceEdge, spec.surfaceEdge)),
+                shape = RoundedCornerShape(16.dp),
+            )
+            .clickable(onClick = onClick)
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            Box(Modifier.size(22.dp).clip(RoundedCornerShape(7.dp)).background(spec.accent.copy(alpha = 0.85f)))
+            Box(Modifier.size(22.dp).clip(RoundedCornerShape(7.dp)).background(spec.cyan.copy(alpha = 0.7f)))
+            Box(Modifier.size(22.dp).clip(RoundedCornerShape(7.dp)).background(spec.surfaceTint.copy(alpha = 0.95f)).border(1.dp, spec.surfaceEdge, RoundedCornerShape(7.dp)))
+        }
+        Column {
+            Text(spec.label, color = spec.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text(spec.description, color = spec.muted, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 

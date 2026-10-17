@@ -5,8 +5,16 @@ import com.tim.futureai.domain.task.TaskAuthorizationPolicy
 enum class ThemeMode { DARK, LIGHT, SYSTEM }
 enum class RoutingMode { MANUAL, AUTOMATIC }
 
+/** Liquid Reality theme identity; persisted and mapped to full visual specs in the UI layer. */
+enum class VisualTheme { LIQUID_INDIGO, OBSIDIAN, ARCTIC, AURORA }
+
 data class AppPreferences(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    /** Liquid Reality theme; falls back to themeMode mapping when absent in storage. */
+    val visualTheme: VisualTheme = VisualTheme.LIQUID_INDIGO,
+    val glassIntensity: Float = 0.6f,
+    val lowPerformanceMode: Boolean = false,
+    val dynamicBackground: Boolean = false,
     val fontScale: Float = 1f,
     val compactChat: Boolean = false,
     val animationsEnabled: Boolean = true,
@@ -32,6 +40,7 @@ data class AppPreferences(
         val stepTimeout = taskStepTimeoutMs.coerceIn(5_000, 120_000)
         return copy(
             fontScale = fontScale.coerceIn(0.85f, 1.25f),
+            glassIntensity = glassIntensity.coerceIn(0f, 1f),
             historyLimit = historyLimit.coerceIn(0, 5000),
             taskMaxSteps = taskMaxSteps.coerceIn(1, 30),
             taskMaxRetries = taskMaxRetries.coerceIn(0, 3),

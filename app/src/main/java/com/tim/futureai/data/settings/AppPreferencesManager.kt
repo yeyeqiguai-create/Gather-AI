@@ -6,6 +6,7 @@ import com.tim.futureai.core.security.SecureValueStore
 import com.tim.futureai.domain.settings.AppPreferences
 import com.tim.futureai.domain.settings.RoutingMode
 import com.tim.futureai.domain.settings.ThemeMode
+import com.tim.futureai.domain.settings.VisualTheme
 import com.tim.futureai.domain.task.TaskAuthorizationPolicy
 
 /** App-level preferences share the encrypted store; provider secrets remain in their existing bundle. */
@@ -14,6 +15,14 @@ class AppPreferencesManager(private val store: SecureValueStore) {
         val fields = JsonMini.parse(store.getString(KEY).orEmpty()).asObject()?.entries ?: return AppPreferences()
         AppPreferences(
             themeMode = fields["themeMode"]?.asString()?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM,
+            visualTheme = fields["visualTheme"]?.asString()?.let { runCatching { VisualTheme.valueOf(it) }.getOrNull() }
+                ?: when (fields["themeMode"]?.asString()) {
+                    "LIGHT" -> VisualTheme.ARCTIC
+                    else -> VisualTheme.LIQUID_INDIGO
+                },
+            glassIntensity = fields["glassIntensity"]?.asString()?.toFloatOrNull() ?: 0.6f,
+            lowPerformanceMode = fields.bool("lowPerformanceMode", false),
+            dynamicBackground = fields.bool("dynamicBackground", false),
             fontScale = fields["fontScale"]?.asString()?.toFloatOrNull() ?: 1f,
             compactChat = fields.bool("compactChat", false),
             animationsEnabled = fields.bool("animationsEnabled", true),
@@ -41,7 +50,12 @@ class AppPreferencesManager(private val store: SecureValueStore) {
     fun save(value: AppPreferences): Boolean {
         val p = value.normalized()
         val fields = listOf(
-            "themeMode" to p.themeMode.name, "fontScale" to p.fontScale.toString(),
+            "themeMode" to p.themeMode.name,
+            "visualTheme" to p.visualTheme.name,
+            "glassIntensity" to p.glassIntensity.toString(),
+            "lowPerformanceMode" to p.lowPerformanceMode.toString(),
+            "dynamicBackground" to p.dynamicBackground.toString(),
+            "fontScale" to p.fontScale.toString(),
             "compactChat" to p.compactChat.toString(), "animationsEnabled" to p.animationsEnabled.toString(),
             "showModelNames" to p.showModelNames.toString(), "showRoutingReason" to p.showRoutingReason.toString(),
             "routingMode" to p.routingMode.name, "inheritGlobalModel" to p.inheritGlobalModel.toString(),
