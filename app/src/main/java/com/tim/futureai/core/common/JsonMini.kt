@@ -13,7 +13,9 @@ sealed class JsonValue {
     data class JBool(val value: Boolean) : JsonValue()
     data object JNull : JsonValue()
     data class JArray(val items: List<JsonValue>) : JsonValue()
-    data class JObject(val entries: Map<String, JsonValue>) : JsonValue()
+    data class JObject(val entries: Map<String, JsonValue>) : JsonValue() {
+        operator fun get(key: String): JsonValue? = entries[key]
+    }
 
     fun asString(): String? = (this as? JString)?.value
     fun asObject(): JObject? = this as? JObject

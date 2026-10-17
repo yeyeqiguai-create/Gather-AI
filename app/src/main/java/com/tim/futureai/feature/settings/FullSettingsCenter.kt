@@ -108,6 +108,8 @@ fun FullSettingsCenter(
     providerContent: @Composable (onBack: () -> Unit) -> Unit,
     usageContent: @Composable (UsageSnapshot) -> Unit,
     updatesContent: @Composable () -> Unit,
+    healthContent: @Composable (onBack: () -> Unit) -> Unit,
+    arenaContent: @Composable (onBack: () -> Unit) -> Unit,
 ) {
     var section by rememberSaveable { mutableStateOf(SettingsSection.GENERAL) }
     // Edge swipe / system back: subpage returns to the category home first,
@@ -128,6 +130,10 @@ fun FullSettingsCenter(
             stateHolder.SaveableStateProvider(target.name) {
                 if (target == SettingsSection.PROVIDERS) {
                     providerContent { section = SettingsSection.GENERAL }
+                } else if (target == SettingsSection.HEALTH) {
+                    healthContent { section = SettingsSection.GENERAL }
+                } else if (target == SettingsSection.ARENA) {
+                    arenaContent { section = SettingsSection.GENERAL }
                 } else {
                     SettingsPageFrame(
                         title = if (target == SettingsSection.GENERAL) "设置中心" else target.title,
@@ -160,7 +166,7 @@ fun FullSettingsCenter(
                             onClearHistory = { confirmation = SettingsSection.CHAT }, onClearCache = { confirmation = SettingsSection.STORAGE })
                         SettingsSection.DIAGNOSTICS -> DiagnosticsPage(versionName, versionCode, buildInfo, providerCount, enabledProviderCount,
                             updateStatus, operationMessage, latestErrorType, onCopyDiagnostics, onOpenGitHub, onOpenUpdates = { section = SettingsSection.UPDATES })
-                        SettingsSection.PROVIDERS -> Unit
+                        SettingsSection.PROVIDERS, SettingsSection.HEALTH, SettingsSection.ARENA -> Unit
                     }
                     }
                 }

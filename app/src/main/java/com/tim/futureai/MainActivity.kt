@@ -48,6 +48,28 @@ import com.tim.futureai.data.ai.AiProviderRegistry
 import com.tim.futureai.data.chat.FileChatSessionsRepository
 import com.tim.futureai.data.update.GitHubUpdateRepository
 import com.tim.futureai.data.usage.FileUsageRepository
+import com.tim.futureai.data.arena.FileArenaRepository
+import com.tim.futureai.data.health.CacheCleanRepairAction
+import com.tim.futureai.data.health.FileHealthRepository
+import com.tim.futureai.data.health.FileRepairRepository
+import com.tim.futureai.data.health.HealthCheckFactory
+import com.tim.futureai.data.health.ProviderRetestAction
+import com.tim.futureai.data.health.TaskResumeRepairAction
+import com.tim.futureai.data.health.repairStrategies
+import com.tim.futureai.data.proactive.FileProactiveRepository
+import com.tim.futureai.data.reputation.FileReputationRepository
+import com.tim.futureai.data.reputation.TaskReputationBridge
+import com.tim.futureai.domain.arena.ArenaStatus
+import com.tim.futureai.domain.health.HealthCheckRegistry
+import com.tim.futureai.domain.health.HealthMonitor
+import com.tim.futureai.domain.health.HealthStatus
+import com.tim.futureai.domain.health.HealthTrigger
+import com.tim.futureai.domain.health.SelfHealingEngine
+import com.tim.futureai.domain.proactive.ProactiveEngine
+import com.tim.futureai.domain.proactive.ProactiveEventType
+import com.tim.futureai.domain.proactive.ProactiveStatus
+import com.tim.futureai.domain.reputation.ReputationStore
+import com.tim.futureai.data.arena.ArenaRunner
 import com.tim.futureai.data.task.FileTaskRepository
 import com.tim.futureai.data.task.AiTaskPlanSourceFactory
 import com.tim.futureai.domain.task.BuiltInTaskToolRegistry
@@ -79,7 +101,13 @@ import com.tim.futureai.domain.settings.AppPreferences
 import com.tim.futureai.domain.settings.SettingsSection
 import com.tim.futureai.domain.usage.UsageSnapshot
 import com.tim.futureai.platform.files.AttachmentImporter
+import com.tim.futureai.platform.notify.AndroidProactiveNotificationSink
+import com.tim.futureai.platform.schedule.HealthWorkScheduler
+import com.tim.futureai.platform.schedule.PeriodicHealthRunner
 import com.tim.futureai.platform.speech.SpeechController
+import com.tim.futureai.feature.arena.ArenaScreen
+import com.tim.futureai.feature.health.HealthCenterScreen
+import com.tim.futureai.feature.proactive.NotificationCenterScreen
 import com.tim.futureai.platform.speech.SpeechRecognitionMessages
 import com.tim.futureai.ui.theme.FuturePalette
 import com.tim.futureai.ui.liquid.GatherLiquidTheme
@@ -142,6 +170,63 @@ class MainActivity : ComponentActivity() {
         val taskToolRegistry = BuiltInTaskToolRegistry(taskRepository)
         val taskEngine = TaskEngine(taskRepository, taskToolRegistry, (application as FutureAiApplication).taskScope)
         val taskPlanSourceFactory = AiTaskPlanSourceFactory(settingsManager, providerRegistry, usageRepository)
+        // v0.1.8: self-diagnostics, self-healing, proactive engine, reputation, arena.
+        val clock: () -> Long = { System.currentTimeMillis() }
+        val idSeed: () -> String = { UUID.randomUUID().toString().take(8) }
+        val healthRepository = FileHealthRepository(File(filesDir, "health-state-v1.json"))
+        val healthRegistry = HealthCheckRegistry()
+        val healthMonitor = HealthMonitor(healthRepository, healthRegistry, clock, idSeed)
+        val proactiveRepository = FileProactiveRepository(File(filesDir, "proactive-events-v1.json"))
+        val notificationSink = AndroidProactiveNotificationSink(this)
+        val proactiveEngine = ProactiveEngine(proactiveRepository, notificationSink, clock, idSeed)
+        val repairRepository = FileRepairRepository(File(filesDir, "repair-records-v1.json"))
+        val reputationStore = ReputationStore(FileReputationRepository(File(filesDir, "model-reputation-v1.json")), clock)
+        val reputationBridge = TaskReputationBridge(reputationStore)
+        val arenaRepository = FileArenaRepository(File(filesDir, "arena-sessions-v1.json"))
+        val arenaRunner = ArenaRunner(settingsManager, providerRegistry, usageRepository, reputationStore, arenaRepository, clock, idSeed)
+        HealthCheckFactory(this, settingsManager, providerRegistry, taskEngine, appPreferencesManager, createUpdateRepository(), clock)
+            .build()
+            .forEach { healthRegistry.register(it) }
+        val healingEngine = SelfHealingEngine(
+            repairRepository,
+            mapOf(
+                "provider.retest" to ProviderRetestAction(settingsManager, providerRegistry),
+                "task.resume" to TaskResumeRepairAction(taskEngine, appPreferencesManager),
+                "storage.cacheclean" to CacheCleanRepairAction(this),
+            ),
+            repairStrategies(), healthMonitor,
+            eventSink = object : com.tim.futureai.domain.health.RepairEventSink {
+                override suspend fun onRepairFinished(record: com.tim.futureai.domain.health.RepairRecord, issue: com.tim.futureai.domain.health.HealthIssue?) {
+                    if (record.outcome != com.tim.futureai.domain.health.RepairOutcome.SUCCESS) {
+                        proactiveEngine.emit(
+                            ProactiveEventType.REPAIR_FAILED, "repair-${record.checkId}",
+                            "自动修复未完成：${record.detail.take(80)}",
+                            "修复尝试 ${record.attempt} 次，复检 ${record.recheckStatus ?: "未执行"}。可在健康中心手动处理。",
+                            if (record.outcome == com.tim.futureai.domain.health.RepairOutcome.STOPPED) 2 else 3,
+                            relatedKind = "CHECK", relatedId = record.checkId,
+                        )
+                    }
+                }
+            },
+            clock, idSeed,
+        )
+        HealthWorkScheduler.PeriodicHealthRunnerProvider.resolve = { _ ->
+            object : PeriodicHealthRunner {
+                override suspend fun invoke(trigger: HealthTrigger) {
+                    val report = healthMonitor.runAll(trigger)
+                    report.results.forEach { result ->
+                        if (result.status == HealthStatus.FAILED || (result.status == HealthStatus.WARNING && result.checkId == "tasks.flow")) {
+                            proactiveEngine.emit(
+                                ProactiveEventType.HEALTH_ISSUE, "health-${result.checkId}",
+                                result.title, result.detail, if (result.status == HealthStatus.FAILED) 3 else 2,
+                                relatedKind = "CHECK", relatedId = result.checkId,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        HealthWorkScheduler.schedule(this)
         val viewModel = ChatViewModel(
             lifecycleScope,
             provider,
@@ -195,6 +280,25 @@ class MainActivity : ComponentActivity() {
                 var uiState by remember { mutableStateOf<ChatUiState>(ChatUiState()) }
                 var showSettings by remember { mutableStateOf(false) }
                 var showTaskCenter by remember { mutableStateOf(false) }
+                var showHealth by remember { mutableStateOf(false) }
+                var showCenter by remember { mutableStateOf(false) }
+                var showArena by remember { mutableStateOf(false) }
+                var latestReport by remember { mutableStateOf<com.tim.futureai.domain.health.HealthReport?>(null) }
+                var repairingCheckId by remember { mutableStateOf<String?>(null) }
+                var arenaRunning by remember { mutableStateOf(false) }
+                var arenaSessions by remember { mutableStateOf<List<com.tim.futureai.domain.arena.ArenaSession>>(emptyList()) }
+                var centerEvents by remember { mutableStateOf<List<com.tim.futureai.domain.proactive.ProactiveEvent>>(emptyList()) }
+                val notificationsEnabled = remember { notificationSink.notificationsEnabled() }
+                val seenFinishedTasks = remember { mutableSetOf<String>() }
+                var repairRecords by remember { mutableStateOf<List<com.tim.futureai.domain.health.RepairRecord>>(emptyList()) }
+                var healthIssues by remember { mutableStateOf<List<com.tim.futureai.domain.health.HealthIssue>>(emptyList()) }
+                var reputationViews by remember { mutableStateOf<List<com.tim.futureai.domain.reputation.ReputationView>>(emptyList()) }
+                suspend fun refreshCenterData() {
+                    centerEvents = proactiveEngine.center()
+                    repairRecords = repairRepository.allRecords()
+                    reputationViews = reputationStore.allViews()
+                    arenaSessions = arenaRepository.all()
+                }
                 var settings by remember { mutableStateOf(initialSettings) }
                 var settingsOperationMessage by remember { mutableStateOf<String?>(null) }
                 var cacheBytes by remember { mutableStateOf(0L) }
@@ -230,7 +334,12 @@ class MainActivity : ComponentActivity() {
                 val taskHistory by taskEngine.tasks.collectAsState()
                 val screenTransitionMillis = if (appPreferences.animationsEnabled && systemAnimationsEnabled) 180 else 0
                 // System back / edge swipe: leave settings or task center instead of closing the app.
-                BackHandler(enabled = showSettings || showTaskCenter) { showSettings = false; showTaskCenter = false }
+                BackHandler(
+                    enabled = showSettings || showTaskCenter || showHealth || showCenter || showArena,
+                ) {
+                    showSettings = false; showTaskCenter = false
+                    showHealth = false; showCenter = false; showArena = false
+                }
                 val speechController = remember {
                     SpeechController(applicationContext,
                         onSpeakingChanged = { key -> composeScope.launch(Dispatchers.Main) { speakingMessageKey = key } },
@@ -254,6 +363,29 @@ class MainActivity : ComponentActivity() {
                 }
                 LaunchedEffect(taskEngine) {
                     runCatching { taskEngine.load(appPreferencesManager.load().toTaskEnginePolicy()) }
+                    proactiveEngine.recoverOnStartup()
+                    centerEvents = proactiveEngine.center()
+                }
+                LaunchedEffect(taskHistory) {
+                    taskHistory.forEach { aggregate ->
+                        val finished = aggregate.task.status in setOf(
+                            com.tim.futureai.domain.task.TaskStatus.SUCCEEDED,
+                            com.tim.futureai.domain.task.TaskStatus.FAILED,
+                            com.tim.futureai.domain.task.TaskStatus.CANCELLED,
+                        )
+                        if (finished && seenFinishedTasks.add(aggregate.task.id)) {
+                            reputationBridge.onTaskFinished(aggregate, aggregate.task.estimatedCostUsd)
+                            if (aggregate.task.status == com.tim.futureai.domain.task.TaskStatus.FAILED) {
+                                proactiveEngine.emit(
+                                    ProactiveEventType.TASK_FAILED, "task-${aggregate.task.id}",
+                                    "任务失败：${aggregate.task.goal.take(40)}",
+                                    aggregate.task.result?.summary ?: "任务未通过验证；可在任务中心查看证据并重试。",
+                                    2, relatedKind = "TASK", relatedId = aggregate.task.id,
+                                )
+                                centerEvents = proactiveEngine.center()
+                            }
+                        }
+                    }
                 }
                 var pendingExport by remember { mutableStateOf("") }
                 val exportDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
@@ -280,7 +412,16 @@ class MainActivity : ComponentActivity() {
                         composeScope.launch {
                             try {
                                 updateResult = updateRepository.check()
-                                (updateResult as? UpdateCheckResult.Available)?.let { updatePrompt = UpdatePromptState(it.release) }
+                                (updateResult as? UpdateCheckResult.Available)?.let {
+                                    updatePrompt = UpdatePromptState(it.release)
+                                    proactiveEngine.emit(
+                                        ProactiveEventType.UPDATE_AVAILABLE, "update-${it.release.versionName}",
+                                        "发现新版本 ${it.release.versionName}",
+                                        "versionCode ${it.release.versionCode}；可在设置中下载并校验安装。",
+                                        1, relatedKind = "UPDATE", relatedId = it.release.versionName,
+                                    )
+                                    centerEvents = proactiveEngine.center()
+                                }
                             } finally {
                                 updateCheckGate.finish()
                                 updateChecking = false
@@ -540,9 +681,85 @@ class MainActivity : ComponentActivity() {
                 }
                 viewModel.onStateChanged = { uiState = it }
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Crossfade(targetState = showSettings || showTaskCenter, animationSpec = tween(screenTransitionMillis), label = "main-screen-transition") { showingNonChat ->
+                    Crossfade(targetState = showSettings || showTaskCenter || showHealth || showCenter || showArena, animationSpec = tween(screenTransitionMillis), label = "main-screen-transition") { showingNonChat ->
                     if (showingNonChat) {
-                    if (showSettings) {
+                    if (showHealth) {
+                        HealthCenterScreen(
+                            monitor = healthMonitor,
+                            healingEngine = healingEngine,
+                            issues = healthIssues,
+                            repairRecords = repairRecords,
+                            latestReport = latestReport,
+                            repairingCheckId = repairingCheckId,
+                            notificationDegraded = !notificationsEnabled,
+                            onRunAll = {
+                                composeScope.launch {
+                                    latestReport = healthMonitor.runAll(HealthTrigger.MANUAL)
+                                    latestReport?.results?.forEach { result ->
+                                        if (result.status in setOf(HealthStatus.FAILED, HealthStatus.WARNING)) {
+                                            proactiveEngine.emit(
+                                                ProactiveEventType.HEALTH_ISSUE, "health-${result.checkId}",
+                                                result.title, result.detail, if (result.status == HealthStatus.FAILED) 3 else 2,
+                                                relatedKind = "CHECK", relatedId = result.checkId,
+                                            )
+                                        }
+                                    }
+                                    repairRecords = repairRepository.allRecords()
+                                    healthIssues = healthMonitor.allIssues()
+                                    centerEvents = proactiveEngine.center()
+                                }
+                            },
+                            onRepair = { checkId ->
+                                composeScope.launch {
+                                    repairingCheckId = checkId
+                                    healingEngine.attemptRepair(checkId, manual = true)
+                                    repairingCheckId = null
+                                    latestReport = healthMonitor.runAll(HealthTrigger.EVENT, listOf(checkId))
+                                    repairRecords = repairRepository.allRecords()
+                                    healthIssues = healthMonitor.allIssues()
+                                    centerEvents = proactiveEngine.center()
+                                }
+                            },
+                            onOpenCenter = { showHealth = false; showCenter = true },
+                            onBack = { showHealth = false },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else if (showCenter) {
+                        NotificationCenterScreen(
+                            events = centerEvents,
+                            notificationsEnabled = notificationsEnabled,
+                            onSnooze = { id -> composeScope.launch { proactiveEngine.snooze(id, clock() + 60 * 60 * 1000L); centerEvents = proactiveEngine.center() } },
+                            onMute = { id -> composeScope.launch { proactiveEngine.mute(id); centerEvents = proactiveEngine.center() } },
+                            onResolve = { id -> composeScope.launch { proactiveEngine.resolve(id); centerEvents = proactiveEngine.center() } },
+                            onOpenRelated = { showCenter = false },
+                            onBack = { showCenter = false },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else if (showArena) {
+                        ArenaScreen(
+                            profiles = profiles,
+                            sessions = arenaSessions,
+                            reputations = reputationViews,
+                            running = arenaRunning,
+                            onRun = { prompt, ids ->
+                                composeScope.launch {
+                                    arenaRunning = true
+                                    runCatching { arenaRunner.run(prompt, ids, com.tim.futureai.domain.ai.ModelTask.GENERAL) }
+                                    arenaRunning = false
+                                    arenaSessions = arenaRepository.all()
+                                    reputationViews = reputationStore.allViews()
+                                }
+                            },
+                            onResetReputation = {
+                                composeScope.launch {
+                                    reputationStore.reset(null, null)
+                                    reputationViews = reputationStore.allViews()
+                                }
+                            },
+                            onBack = { showArena = false },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else if (showSettings) {
                         FullSettingsCenter(
                             preferences = appPreferences,
                             onPreferencesChanged = { next ->
@@ -788,6 +1005,69 @@ class MainActivity : ComponentActivity() {
                                     onViewNotes = { (updateResult as? UpdateCheckResult.Available)?.let { updatePrompt = UpdatePromptState(it.release, showFullNotes = true) } },
                                 )
                             },
+                            healthContent = { back ->
+                                HealthCenterScreen(
+                                    monitor = healthMonitor, healingEngine = healingEngine,
+                                    issues = healthIssues, repairRecords = repairRecords, latestReport = latestReport,
+                                    repairingCheckId = repairingCheckId, notificationDegraded = !notificationsEnabled,
+                                    onRunAll = {
+                                        composeScope.launch {
+                                            latestReport = healthMonitor.runAll(HealthTrigger.MANUAL)
+                                            latestReport?.results?.forEach { result ->
+                                                if (result.status in setOf(HealthStatus.FAILED, HealthStatus.WARNING)) {
+                                                    proactiveEngine.emit(
+                                                        ProactiveEventType.HEALTH_ISSUE, "health-${result.checkId}",
+                                                        result.title, result.detail, if (result.status == HealthStatus.FAILED) 3 else 2,
+                                                        relatedKind = "CHECK", relatedId = result.checkId,
+                                                    )
+                                                }
+                                            }
+                                            repairRecords = repairRepository.allRecords()
+                                            healthIssues = healthMonitor.allIssues()
+                                            centerEvents = proactiveEngine.center()
+                                        }
+                                    },
+                                    onRepair = { checkId ->
+                                        composeScope.launch {
+                                            repairingCheckId = checkId
+                                            healingEngine.attemptRepair(checkId, manual = true)
+                                            repairingCheckId = null
+                                            latestReport = healthMonitor.runAll(HealthTrigger.EVENT, listOf(checkId))
+                                            repairRecords = repairRepository.allRecords()
+                                            healthIssues = healthMonitor.allIssues()
+                                            centerEvents = proactiveEngine.center()
+                                        }
+                                    },
+                                    onOpenCenter = { showHealth = false; showCenter = true },
+                                    onBack = back,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            },
+                            arenaContent = { back ->
+                                ArenaScreen(
+                                    profiles = profiles,
+                                    sessions = arenaSessions,
+                                    reputations = reputationViews,
+                                    running = arenaRunning,
+                                    onRun = { prompt, ids ->
+                                        composeScope.launch {
+                                            arenaRunning = true
+                                            runCatching { arenaRunner.run(prompt, ids, com.tim.futureai.domain.ai.ModelTask.GENERAL) }
+                                            arenaRunning = false
+                                            arenaSessions = arenaRepository.all()
+                                            reputationViews = reputationStore.allViews()
+                                        }
+                                    },
+                                    onResetReputation = {
+                                        composeScope.launch {
+                                            reputationStore.reset(null, null)
+                                            reputationViews = reputationStore.allViews()
+                                        }
+                                    },
+                                    onBack = back,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            },
                         )
                     } else TaskCenterScreen(
                         engine = taskEngine,
@@ -886,6 +1166,26 @@ class MainActivity : ComponentActivity() {
                             showSettings = true
                         },
                         onTaskCenterClick = { showSettings = false; showTaskCenter = true },
+                        onHealthClick = {
+                            showSettings = false; showTaskCenter = false
+                            composeScope.launch {
+                                latestReport = healthMonitor.runAll(HealthTrigger.EVENT)
+                                repairRecords = repairRepository.allRecords()
+                                healthIssues = healthMonitor.allIssues()
+                                centerEvents = proactiveEngine.center()
+                                reputationViews = reputationStore.allViews()
+                                arenaSessions = arenaRepository.all()
+                            }
+                            showHealth = true
+                        },
+                        onArenaClick = {
+                            showSettings = false; showTaskCenter = false
+                            composeScope.launch {
+                                arenaSessions = arenaRepository.all()
+                                reputationViews = reputationStore.allViews()
+                            }
+                            showArena = true
+                        },
                         isAiConfigured = isAiConfigured,
                         showModelNames = appPreferences.showModelNames,
                         showRoutingReason = appPreferences.showRoutingReason,

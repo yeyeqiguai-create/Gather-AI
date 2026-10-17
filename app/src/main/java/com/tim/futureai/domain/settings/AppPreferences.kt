@@ -63,6 +63,8 @@ enum class SettingsSection(val title: String, val description: String) {
     ATTACHMENTS("附件", "支持格式、处理边界和缓存管理"),
     VOICE("语音", "语音识别、系统 TTS 与隐私状态"),
     UPDATES("更新管理", "检查、下载、哈希校验与安装引导"),
+    HEALTH("健康与自愈", "自我诊断、有限修复、复检与提醒中心"),
+    ARENA("Model Arena 与信誉", "多模型对比评审、客观验证与按任务类型信誉"),
     SECURITY("安全与隐私", "密钥保护、本地存储和服务商数据传输"),
     STORAGE("数据与存储", "聊天、用量、缓存和配置迁移状态"),
     DIAGNOSTICS("诊断与关于", "版本、配置状态、脱敏诊断和项目链接");

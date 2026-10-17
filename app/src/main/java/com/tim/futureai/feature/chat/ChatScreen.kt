@@ -104,6 +104,8 @@ fun ChatScreen(
     onDismissNotice: () -> Unit = {},
     onSettingsClick: () -> Unit = {},
     onTaskCenterClick: () -> Unit = {},
+    onHealthClick: () -> Unit = {},
+    onArenaClick: () -> Unit = {},
     onCancel: () -> Unit = {},
     onExamplePrompt: (String) -> Unit = onInputChanged,
     onRegenerate: (Int) -> Unit = {},
@@ -215,6 +217,8 @@ private fun BrandBar(
     showModelNames: Boolean = true,
     showRoutingReason: Boolean = true,
     onTaskCenterClick: () -> Unit = {},
+    onHealthClick: () -> Unit = {},
+    onArenaClick: () -> Unit = {},
 ) {
     var modelMenuExpanded by remember { mutableStateOf(false) }
     val spec = LocalLiquidSpec.current
@@ -261,6 +265,14 @@ private fun BrandBar(
         Box(Modifier.size(38.dp).clip(CircleShape).clickable(onClick = onExportSession), contentAlignment = Alignment.Center) {
             Text("⇩", color = FuturePalette.Cyan, fontSize = 20.sp)
         }
+        Box(
+            modifier = Modifier.size(40.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onArenaClick),
+            contentAlignment = Alignment.Center,
+        ) { Text("★", color = FuturePalette.Cyan, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+        Box(
+            modifier = Modifier.size(40.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onHealthClick),
+            contentAlignment = Alignment.Center,
+        ) { FutureGlyph("shield", tint = FuturePalette.Success, size = 17.dp) }
         Box(
             modifier = Modifier.size(44.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onTaskCenterClick),
             contentAlignment = Alignment.Center,
