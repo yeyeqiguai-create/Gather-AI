@@ -17,6 +17,9 @@ data class UsageRecord(
     val recordedAt: String = Instant.now().toString(),
     /** Null for legacy records written before session attribution was added. */
     val sessionId: String? = null,
+    /** Task planning/execution attribution; null for ordinary chat. */
+    val taskId: String? = null,
+    val taskStepId: String? = null,
 ) {
     val tokenUsage: AiTokenUsage? get() = if (promptTokens != null && completionTokens != null) AiTokenUsage(promptTokens, completionTokens) else null
 

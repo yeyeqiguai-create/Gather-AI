@@ -28,6 +28,8 @@ class FileUsageRepository(private val file: File) : UsageRepository {
                     completionTokens = fields.numberOrNull("completionTokens"),
                     recordedAt = fields.string("recordedAt"),
                     sessionId = fields["sessionId"]?.asString(),
+                    taskId = fields["taskId"]?.asString(),
+                    taskStepId = fields["taskStepId"]?.asString(),
                 )
             }
             UsageSnapshot(records)
@@ -48,6 +50,8 @@ class FileUsageRepository(private val file: File) : UsageRepository {
                 "\"completionTokens\":" + (entry.completionTokens?.toString() ?: "null"),
                 "\"recordedAt\":" + JsonMini.quote(entry.recordedAt),
                 "\"sessionId\":" + (entry.sessionId?.let(JsonMini::quote) ?: "null"),
+                "\"taskId\":" + (entry.taskId?.let(JsonMini::quote) ?: "null"),
+                "\"taskStepId\":" + (entry.taskStepId?.let(JsonMini::quote) ?: "null"),
             ).joinToString(",") + "}"
         } + "}"
         file.parentFile?.mkdirs()

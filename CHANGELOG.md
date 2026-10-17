@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.1.6.01 (Revise1) — Beta / Internal Development
+
+- Added a verified task execution core: constrained task states, dependency-checked plans, persisted checkpoints and audit events, guarded retries, pause/resume/cancel, and restart recovery.
+- Task plans may be proposed by the currently routed AI provider, but local schema, tool ID, parameter, dependency, cycle and verification-rule checks must pass before a plan can be approved or run.
+- Added local-only calculator, JSON validation, literal text-rule and task/evidence query tools. No model-generated code, arbitrary shell, network write, screen control or other-app automation is executed.
+- Every tool result is checked by explicit structural, execution-status, result, evidence, business-rule or manual-approval verifiers. Only VERIFIED steps can satisfy dependencies or produce a successful task conclusion; insufficient evidence remains inconclusive.
+- Added task center access from chat, real task/step status observation, approval prompts, execution controls, result/evidence/audit detail, and task retention/cleanup settings.
+- Task planning usage is attributed to task IDs with actual provider/model, Token counts when reported, duration and price-based estimate when known.
+- Replaced the launcher mark with a simpler high-contrast Gather “G” monogram and monochrome adaptive icon.
+
+### Scope notes
+
+- Task planning sends the goal and registered local-tool descriptions to the chosen AI provider. Tool execution itself is local; first-party tools are read-only or deterministic and have no external side effects.
+- The task engine establishes extensible permission and recovery interfaces; it does not provide phone-screen automation, arbitrary app control, shell execution, or unattended background-agent behavior.
+- Plan review defaults to required. Unsupported goals or model plans that fail local validation are rejected instead of being treated as completed work.
+
 ## v0.1.5.02 (Revise1) — Beta
 
 - Added a searchable, categorized settings center for General, Appearance, Chat, Providers, Model Routing, Usage & Cost, Attachments, Voice, Updates, Security & Privacy, Data & Storage, and Diagnostics & About.

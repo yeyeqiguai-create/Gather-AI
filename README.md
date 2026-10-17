@@ -44,7 +44,7 @@ Gather AI is an evolving project. Features, interfaces, and architecture may cha
 1. Improve streaming reliability and broaden provider compatibility.
 2. Expand document format support and accessibility.
 3. Improve usage analytics and provider-specific cost reporting.
-4. Explore optional model verification and intelligent task workflows.
+4. Expand verified local task tools while retaining evidence and permission boundaries.
 5. Expand Android integrations with user-controlled permissions.
 
 ## 📄 License
@@ -58,6 +58,10 @@ The project license has not yet been specified. Please check the repository for 
 - 图片、文本和 DOCX 附件导入；图片分析需在模型设置中显式启用视觉能力，未支持格式会提示原因。
 - 系统语音输入与 TTS 朗读、实际 Token/耗时/错误统计、可选单价下的费用估算。
 - 消息编辑/复制/分享、会话文本导出。
+- Verified Task Engine：从聊天进入任务中心，由当前路由模型提议结构化计划，再经本地依赖/Schema/权限/验证规则校验后执行；任务状态、检查点、恢复记录和审计事件持久化。
+- 首批任务工具只在本地运行：安全算术、JSON 必需字段检查、文本包含/排除规则、任务与验证证据查询。所有步骤均需明确验证，只有 `VERIFIED` 步骤能完成依赖或形成成功结论。
+
+任务规划会把用户目标和本地工具清单发送给所选 AI 服务商；执行器不会运行模型生成代码，也不会操作系统界面或任意应用。计划默认需要用户检查后开始，高风险工具即使加入也必须独立逐次确认。
 
 ## 版本管理
 

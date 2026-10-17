@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -46,6 +47,11 @@ import com.tim.futureai.data.ai.AiProviderRegistry
 import com.tim.futureai.data.chat.FileChatSessionsRepository
 import com.tim.futureai.data.update.GitHubUpdateRepository
 import com.tim.futureai.data.usage.FileUsageRepository
+import com.tim.futureai.data.task.FileTaskRepository
+import com.tim.futureai.data.task.AiTaskPlanSourceFactory
+import com.tim.futureai.domain.task.BuiltInTaskToolRegistry
+import com.tim.futureai.domain.task.TaskEngine
+import com.tim.futureai.domain.task.toTaskEnginePolicy
 import com.tim.futureai.feature.update.UpdateCheckResult
 import com.tim.futureai.feature.update.UpdateCheckGate
 import com.tim.futureai.feature.update.UpdatePromptAction
@@ -66,6 +72,7 @@ import com.tim.futureai.data.settings.AppPreferencesManager
 import com.tim.futureai.feature.settings.AiSettingsScreen
 import com.tim.futureai.feature.settings.FullSettingsCenter
 import com.tim.futureai.feature.settings.UsageCard
+import com.tim.futureai.feature.task.TaskCenterScreen
 import com.tim.futureai.feature.update.UpdateSection
 import com.tim.futureai.domain.settings.AppPreferences
 import com.tim.futureai.domain.settings.SettingsSection
@@ -127,6 +134,10 @@ class MainActivity : ComponentActivity() {
             File(filesDir, "chat-history.json"),
         )
         val usageRepository = FileUsageRepository(File(filesDir, "usage-stats.json"))
+        val taskRepository = FileTaskRepository(File(filesDir, "verified-tasks-v1.json"))
+        val taskToolRegistry = BuiltInTaskToolRegistry(taskRepository)
+        val taskEngine = TaskEngine(taskRepository, taskToolRegistry, (application as FutureAiApplication).taskScope)
+        val taskPlanSourceFactory = AiTaskPlanSourceFactory(settingsManager, providerRegistry, usageRepository)
         val viewModel = ChatViewModel(
             lifecycleScope,
             provider,
@@ -165,6 +176,7 @@ class MainActivity : ComponentActivity() {
                 var usage by remember { mutableStateOf(UsageSnapshot()) }
                 var uiState by remember { mutableStateOf<ChatUiState>(ChatUiState()) }
                 var showSettings by remember { mutableStateOf(false) }
+                var showTaskCenter by remember { mutableStateOf(false) }
                 var settings by remember { mutableStateOf(initialSettings) }
                 var settingsOperationMessage by remember { mutableStateOf<String?>(null) }
                 var cacheBytes by remember { mutableStateOf(0L) }
@@ -197,6 +209,7 @@ class MainActivity : ComponentActivity() {
                 val startupUpdateCheck = remember { StartupUpdateCheck() }
                 var speakingMessageKey by remember { mutableStateOf<String?>(null) }
                 val composeScope = rememberCoroutineScope()
+                val taskHistory by taskEngine.tasks.collectAsState()
                 val systemAnimationsEnabled = remember {
                     val motionEnabled = if (Build.VERSION.SDK_INT >= 26) ValueAnimator.areAnimatorsEnabled()
                     else Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f
@@ -223,6 +236,9 @@ class MainActivity : ComponentActivity() {
                     if (showSettings) cacheBytes = withContext(Dispatchers.IO) {
                         cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
                     }
+                }
+                LaunchedEffect(taskEngine) {
+                    runCatching { taskEngine.load(appPreferencesManager.load().toTaskEnginePolicy()) }
                 }
                 var pendingExport by remember { mutableStateOf("") }
                 val exportDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
@@ -509,8 +525,9 @@ class MainActivity : ComponentActivity() {
                 }
                 viewModel.onStateChanged = { uiState = it }
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Crossfade(targetState = showSettings, animationSpec = tween(screenTransitionMillis), label = "main-settings-transition") { showingSettings ->
-                    if (showingSettings) {
+                    Crossfade(targetState = showSettings || showTaskCenter, animationSpec = tween(screenTransitionMillis), label = "main-screen-transition") { showingNonChat ->
+                    if (showingNonChat) {
+                    if (showSettings) {
                         FullSettingsCenter(
                             preferences = appPreferences,
                             onPreferencesChanged = { next ->
@@ -542,6 +559,7 @@ class MainActivity : ComponentActivity() {
                             profiles = profiles,
                             usage = usage,
                             sessionCount = uiState.sessions.size,
+                            taskCount = taskHistory.size,
                             historyBytes = File(filesDir, "chat-sessions.json").takeIf { it.exists() }?.length()
                                 ?: File(filesDir, "chat-history.json").length(),
                             cacheBytes = cacheBytes,
@@ -596,6 +614,15 @@ class MainActivity : ComponentActivity() {
                                     }
                                     cacheBytes = withContext(Dispatchers.IO) { cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() } }
                                     settingsOperationMessage = if (result) "临时缓存已清理" else "部分缓存文件清理失败"
+                                }
+                            },
+                            onClearTasks = {
+                                composeScope.launch {
+                                    val removed = runCatching { taskEngine.clearFinished() }
+                                    settingsOperationMessage = removed.fold(
+                                        onSuccess = { "已清理 $it 个已结束任务；活动任务保留" },
+                                        onFailure = { "清理任务历史失败：无法安全更新任务文件" },
+                                    )
                                 }
                             },
                             onCopyVersion = {
@@ -747,6 +774,22 @@ class MainActivity : ComponentActivity() {
                                 )
                             },
                         )
+                    } else TaskCenterScreen(
+                        engine = taskEngine,
+                        policy = appPreferences.toTaskEnginePolicy(),
+                        onBack = { showTaskCenter = false },
+                        onPlan = { goal, policy ->
+                            val requestedModel = uiState.nextMessageModelId ?: uiState.selectedModelId
+                            val selectedModelId = requestedModel?.takeUnless { it == com.tim.futureai.feature.chat.ChatModelChoice.AUTO_ID }
+                            val source = taskPlanSourceFactory.create(
+                                goal = goal,
+                                requestedModelId = selectedModelId,
+                                automaticByDefault = appPreferences.usesAutomaticModelSelection() ||
+                                    requestedModel == com.tim.futureai.feature.chat.ChatModelChoice.AUTO_ID,
+                            )
+                            taskEngine.plan(goal, source, policy)
+                        },
+                    )
                     } else ChatScreen(
                         state = uiState,
                         onInputChanged = viewModel::updateInput,
@@ -819,6 +862,7 @@ class MainActivity : ComponentActivity() {
                         },
                         onExamplePrompt = viewModel::updateInput,
                         onSettingsClick = {
+                            showTaskCenter = false
                             settings = settingsManager.load()
                             profiles = settingsManager.profiles()
                             composeScope.launch { usage = usageRepository.load() }
@@ -826,6 +870,7 @@ class MainActivity : ComponentActivity() {
                             settingsMessage = null
                             showSettings = true
                         },
+                        onTaskCenterClick = { showSettings = false; showTaskCenter = true },
                         isAiConfigured = isAiConfigured,
                         showModelNames = appPreferences.showModelNames,
                         showRoutingReason = appPreferences.showRoutingReason,

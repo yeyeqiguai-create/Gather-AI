@@ -77,3 +77,15 @@ feature ──▶ domain ◀── data
 - `data.settings.AppPreferencesManager` 经 `SecureValueStore` 加密保存主题、聊天显示、路由默认值、语音、启动更新和历史保留配置；UI 仅发出事件，由宿主协调数据与平台操作。
 - Light/Dark/System 共享动态调色板；字体比例通过 Compose `Density` 生效，紧凑间距仅调整消息列表布局。
 - `AiSettingsManager` 持久化脱敏连接测试状态。用量记录新写入会话 ID 并按 Provider/模型/会话聚合，旧格式缺省字段继续读取并标为未知。设置页将历史、用量、cache 与设置偏好清理分开；cache 不包含引用附件或已校验更新 APK。
+
+## Verified Task Engine
+
+- `domain.task` 保存纯 Kotlin 任务、步骤、验证、工具调用、检查点与有序事件模型。`TaskStateMachine` 集中约束任务/步骤状态；失败任务没有到成功的直接转换，步骤只有在 `VerificationStatus.VERIFIED` 后才能满足依赖。
+- `TaskPlanner` 只接收 `TaskPlanSource` 提案。`AiTaskPlanSource` 通过当前 Provider 与自动选模路径请求 JSON 计划；Planner 随后验证 JSON 结构、步骤上限、依赖存在性、环、已注册工具、参数类型/必填项和工具声明的验证规则。无效计划被拒绝，不会进入调度器。`TaskPlanReviewer` 为未来人工调整保留接口，调整结果仍须重新验证。
+- `TaskEngine` 是任务生命周期与调度所有者；只按依赖顺序执行，阻止重复启动，以确定的幂等键标记调用，并把 invocation-start/checkpoint 在工具执行前写入仓库。安全且幂等工具只允许按用户上限有限重试；非幂等或不确定结果进入暂停/UNKNOWN，不盲目重放。
+- `VerificationEngine` 按每个工具声明的规则进行输出结构、执行器成功状态、可计算结果、当前步骤证据、业务规则和人工确认检查。FAILED/INCONCLUSIVE/REQUIRES_APPROVAL 与 VERIFIED 分开处理；只有所有步骤 VERIFIED 才生成成功结论。
+- `TaskToolRegistry` 注册本地计算、JSON 验证、文本字面规则和任务/证据只读查询。参数经声明 Schema 检查；所有工具注明权限、副作用、确认要求、幂等性、超时、重试和验证规则。注册表不执行模型生成代码，也不提供手机屏幕或其他应用控制能力。
+- `FileTaskRepository` 把任务 aggregate（步骤、调用、检查点、证据、事件）写在单个应用私有版本化 JSON 快照中，以临时文件+备份重命名提交。恢复先询问工具检查既有结果；只有已确认无副作用且幂等的调用可在显式继续后重新执行。历史清理只作用于终态任务并需 UI 确认。
+- `feature.task.TaskCenterScreen` 订阅 `TaskEngine.tasks` Flow，而非合成进度；展示计划、依赖、实际结果、证据、审核、等待授权、失败、恢复和最终结论。`MainActivity` 仅组装 task store、registry、当前 AI route 与屏幕入口。
+- 规划请求把目标和工具说明发送给所选 Provider；实际规划 usage（模型、Provider、Token、耗时、可估费用）使用 `taskId` 写入既有用量 ledger。首批工具本地执行，不产生模型费用。
+- `AppPreferences` 持久化任务模式、授权默认策略、步骤/重试上限、单步/总时限、计划复核与历史保留；工具自身 `requiresApproval` 始终优先于全局默认策略。

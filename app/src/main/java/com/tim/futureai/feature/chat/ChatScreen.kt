@@ -100,6 +100,7 @@ fun ChatScreen(
     onSend: () -> Unit,
     onDismissNotice: () -> Unit = {},
     onSettingsClick: () -> Unit = {},
+    onTaskCenterClick: () -> Unit = {},
     onCancel: () -> Unit = {},
     onExamplePrompt: (String) -> Unit = onInputChanged,
     onRegenerate: (Int) -> Unit = {},
@@ -131,7 +132,7 @@ fun ChatScreen(
             modifier = Modifier.fillMaxSize(),
             containerColor = Color.Transparent,
             contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
-            topBar = { BrandBar(state.sessionTitle, state.modelChoices, state.selectedModelId, onModelSelected, onNextMessageModelSelected, onExportSession, { showSessionManager = true }, onSettingsClick, state.activeModelExplanation, showModelNames, showRoutingReason) },
+            topBar = { BrandBar(state.sessionTitle, state.modelChoices, state.selectedModelId, onModelSelected, onNextMessageModelSelected, onExportSession, { showSessionManager = true }, onSettingsClick, state.activeModelExplanation, showModelNames, showRoutingReason, onTaskCenterClick) },
             bottomBar = {
                 Composer(
                     text = state.inputText,
@@ -213,6 +214,7 @@ private fun BrandBar(
     activeModelExplanation: String? = null,
     showModelNames: Boolean = true,
     showRoutingReason: Boolean = true,
+    onTaskCenterClick: () -> Unit = {},
 ) {
     var modelMenuExpanded by remember { mutableStateOf(false) }
     Row(
@@ -258,6 +260,10 @@ private fun BrandBar(
         Box(Modifier.size(38.dp).clip(CircleShape).clickable(onClick = onExportSession), contentAlignment = Alignment.Center) {
             Text("⇩", color = FuturePalette.Cyan, fontSize = 20.sp)
         }
+        Box(
+            modifier = Modifier.size(44.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onTaskCenterClick),
+            contentAlignment = Alignment.Center,
+        ) { Text("任务", color = FuturePalette.Cyan, fontSize = 10.sp, fontWeight = FontWeight.SemiBold) }
         Box(
             modifier = Modifier.size(44.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onSessionsClick),
             contentAlignment = Alignment.Center,

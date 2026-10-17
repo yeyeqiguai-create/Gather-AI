@@ -1,5 +1,7 @@
 package com.tim.futureai.domain.settings
 
+import com.tim.futureai.domain.task.TaskAuthorizationPolicy
+
 enum class ThemeMode { DARK, LIGHT, SYSTEM }
 enum class RoutingMode { MANUAL, AUTOMATIC }
 
@@ -17,11 +19,26 @@ data class AppPreferences(
     val startupUpdateCheck: Boolean = true,
     /** 0 means retain all sessions; otherwise the active session and newest N-1 are retained. */
     val historyLimit: Int = 0,
+    val taskModeEnabled: Boolean = true,
+    val taskAuthorizationPolicy: TaskAuthorizationPolicy = TaskAuthorizationPolicy.CONFIRM_SIDE_EFFECTS,
+    val taskMaxSteps: Int = 12,
+    val taskMaxRetries: Int = 1,
+    val taskStepTimeoutMs: Long = 30_000,
+    val taskTotalTimeoutMs: Long = 300_000,
+    val requireTaskPlanReview: Boolean = true,
+    val retainTaskHistory: Boolean = true,
 ) {
-    fun normalized() = copy(
-        fontScale = fontScale.coerceIn(0.85f, 1.25f),
-        historyLimit = historyLimit.coerceIn(0, 5000),
-    )
+    fun normalized(): AppPreferences {
+        val stepTimeout = taskStepTimeoutMs.coerceIn(5_000, 120_000)
+        return copy(
+            fontScale = fontScale.coerceIn(0.85f, 1.25f),
+            historyLimit = historyLimit.coerceIn(0, 5000),
+            taskMaxSteps = taskMaxSteps.coerceIn(1, 30),
+            taskMaxRetries = taskMaxRetries.coerceIn(0, 3),
+            taskStepTimeoutMs = stepTimeout,
+            taskTotalTimeoutMs = taskTotalTimeoutMs.coerceIn(10_000, 900_000).coerceAtLeast(stepTimeout),
+        )
+    }
 
     fun usesAutomaticModelSelection(): Boolean = routingMode == RoutingMode.AUTOMATIC || !inheritGlobalModel
 }
@@ -32,6 +49,7 @@ enum class SettingsSection(val title: String, val description: String) {
     CHAT("聊天", "路由默认值、模型显示与历史管理"),
     PROVIDERS("AI 服务商", "服务商配置、密钥、模型与连接测试"),
     MODEL_ROUTING("自动选模", "任务分类、模型能力、偏好和回退边界"),
+    TASKS("任务引擎", "计划审核、工具授权、执行限制与任务历史"),
     USAGE("用量与费用", "真实 Token、耗时、错误与费用估算"),
     ATTACHMENTS("附件", "支持格式、处理边界和缓存管理"),
     VOICE("语音", "语音识别、系统 TTS 与隐私状态"),
@@ -64,6 +82,7 @@ object SettingsSearchRegistry {
         SettingsSearchEntry("服务商密钥与模型管理", SettingsSection.PROVIDERS, listOf("API Key", "模型列表")),
         SettingsSearchEntry("自动选模与任务分类", SettingsSection.MODEL_ROUTING, listOf("模型", "编程", "推理", "长文本", "能力")),
         SettingsSearchEntry("失败回退与跨服务商授权", SettingsSection.MODEL_ROUTING, listOf("重试", "权限", "隐私")),
+        SettingsSearchEntry("Verified Task Engine", SettingsSection.TASKS, listOf("任务模式", "授权", "步骤上限", "超时", "重试", "历史")),
         SettingsSearchEntry("Token 用量与费用估算", SettingsSection.USAGE, listOf("请求", "成本", "USD")),
         SettingsSearchEntry("用量时间范围与价格", SettingsSection.USAGE, listOf("7 天", "30 天", "模型价格")),
         SettingsSearchEntry("图片与文档附件限制", SettingsSection.ATTACHMENTS, listOf("文件", "10 MB", "DOCX", "PDF")),

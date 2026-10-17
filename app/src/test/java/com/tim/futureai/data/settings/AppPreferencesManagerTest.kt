@@ -6,6 +6,7 @@ import com.tim.futureai.domain.settings.RoutingMode
 import com.tim.futureai.domain.settings.SettingsSection
 import com.tim.futureai.domain.settings.SettingsSearchRegistry
 import com.tim.futureai.domain.settings.ThemeMode
+import com.tim.futureai.domain.task.TaskAuthorizationPolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -51,6 +52,32 @@ class AppPreferencesManagerTest {
         assertTrue(manager.reset())
         assertEquals(AppPreferences(), manager.load())
         assertEquals("encrypted-provider-data", store.values["provider_bundle"])
+    }
+
+    @Test fun taskEngineSettingsPersistAndNormalizeToSafeBounds() {
+        val store = MemoryStore()
+        val manager = AppPreferencesManager(store)
+        val requested = AppPreferences(
+            taskModeEnabled = false,
+            taskAuthorizationPolicy = TaskAuthorizationPolicy.CONFIRM_EACH_TOOL,
+            taskMaxSteps = 80,
+            taskMaxRetries = 9,
+            taskStepTimeoutMs = 1_000,
+            taskTotalTimeoutMs = 8_000,
+            requireTaskPlanReview = false,
+            retainTaskHistory = false,
+        )
+        assertTrue(manager.save(requested))
+        val loaded = AppPreferencesManager(store).load()
+        assertFalse(loaded.taskModeEnabled)
+        assertEquals(TaskAuthorizationPolicy.CONFIRM_EACH_TOOL, loaded.taskAuthorizationPolicy)
+        assertEquals(30, loaded.taskMaxSteps)
+        assertEquals(3, loaded.taskMaxRetries)
+        assertEquals(5_000L, loaded.taskStepTimeoutMs)
+        assertEquals(10_000L, loaded.taskTotalTimeoutMs)
+        assertFalse(loaded.requireTaskPlanReview)
+        assertFalse(loaded.retainTaskHistory)
+        assertTrue(SettingsSearchRegistry.search("任务引擎").any { it.section == SettingsSection.TASKS })
     }
 
     @Test fun globalAutomaticModeOrDisabledInheritanceRoutesNewSessionsAutomatically() {

@@ -54,6 +54,7 @@ import com.tim.futureai.domain.settings.SettingsSection
 import com.tim.futureai.domain.settings.SettingsSearchEntry
 import com.tim.futureai.domain.settings.SettingsSearchRegistry
 import com.tim.futureai.domain.settings.ThemeMode
+import com.tim.futureai.domain.task.TaskAuthorizationPolicy
 import com.tim.futureai.domain.usage.UsageSnapshot
 import com.tim.futureai.domain.usage.UsageRange
 import com.tim.futureai.feature.update.UpdateCheckResult
@@ -77,6 +78,7 @@ fun FullSettingsCenter(
     profiles: List<AiSettings>,
     usage: UsageSnapshot,
     sessionCount: Int,
+    taskCount: Int,
     historyBytes: Long,
     cacheBytes: Long,
     migrationStatus: String,
@@ -90,6 +92,7 @@ fun FullSettingsCenter(
     onClearUsage: () -> Unit,
     onRefreshUsage: () -> Unit,
     onClearCache: () -> Unit,
+    onClearTasks: () -> Unit,
     onCopyVersion: () -> Unit,
     onCopyDiagnostics: () -> Unit,
     onOpenGitHub: () -> Unit,
@@ -126,6 +129,9 @@ fun FullSettingsCenter(
                         SettingsSection.CHAT -> ChatPage(preferences, onPreferencesChanged, sessionCount,
                             onClearHistory = { confirmation = SettingsSection.CHAT })
                         SettingsSection.MODEL_ROUTING -> RoutingPage(preferences, onPreferencesChanged, profiles)
+                        SettingsSection.TASKS -> TaskEngineSettingsPage(preferences, onPreferencesChanged, taskCount, operationMessage) {
+                            confirmation = SettingsSection.TASKS
+                        }
                         SettingsSection.USAGE -> UsagePage(usage, onRefreshUsage, { confirmation = SettingsSection.USAGE }, { section = SettingsSection.PROVIDERS }, usageContent)
                         SettingsSection.ATTACHMENTS -> AttachmentsPage(operationMessage) { confirmation = SettingsSection.STORAGE }
                         SettingsSection.VOICE -> VoicePage(preferences, onPreferencesChanged, voiceInputAvailable, ttsSettingsAvailable, onRequestVoiceInput, onOpenTtsSettings)
@@ -154,6 +160,7 @@ fun FullSettingsCenter(
             SettingsSection.CHAT -> Triple("清除全部聊天历史？", "所有会话、消息及其引用的附件文件将从本机删除；服务商配置与用量统计保留。此操作不可撤销。", "清除历史")
             SettingsSection.USAGE -> Triple("清除用量统计？", "本机请求记录和 Token 统计将被删除；聊天内容与服务商配置保留。", "清除统计")
             SettingsSection.STORAGE -> Triple("清理临时缓存？", "仅删除应用 cache 目录中的临时文件，不删除聊天附件、会话或已验证更新 APK。", "清理缓存")
+            SettingsSection.TASKS -> Triple("清理已结束任务？", "只删除已验证完成、失败或取消的任务及其审计历史；正在运行、等待授权或暂停的任务会保留。", "清理任务历史")
             else -> Triple("确认操作？", "请确认影响范围。", "确认")
         }
         AlertDialog(
@@ -165,6 +172,7 @@ fun FullSettingsCenter(
                     SettingsSection.CHAT -> onClearHistory()
                     SettingsSection.USAGE -> onClearUsage()
                     SettingsSection.STORAGE -> onClearCache()
+                    SettingsSection.TASKS -> onClearTasks()
                     else -> Unit
                 }
                 confirmation = null
@@ -225,6 +233,61 @@ private fun GeneralPage(
     InfoCard("默认启动行为", "启动后进入最近的聊天界面；更新检查由“更新管理”中的开关控制。")
     InfoCard("语言", "当前界面使用简体中文；应用未附带其他完整语言资源，因此不提供无效切换项。")
     ActionButton("重置应用偏好", danger = true, onClick = onReset)
+}
+
+@Composable
+private fun TaskEngineSettingsPage(
+    preferences: AppPreferences,
+    onPreferencesChanged: (AppPreferences) -> Unit,
+    taskCount: Int,
+    operationMessage: String?,
+    onClearTasks: () -> Unit,
+) {
+    PreferenceSwitch("允许任务模式", "关闭后不能创建新任务；已保存任务和审计记录仍可查看。", preferences.taskModeEnabled) {
+        onPreferencesChanged(preferences.copy(taskModeEnabled = it))
+    }
+    SettingChoice(
+        title = "默认授权策略（不覆盖工具自身的强制确认）",
+        options = listOf(
+            "仅允许无副作用工具" to TaskAuthorizationPolicy.SAFE_ONLY,
+            "副作用工具逐次确认" to TaskAuthorizationPolicy.CONFIRM_SIDE_EFFECTS,
+            "每次工具调用都确认" to TaskAuthorizationPolicy.CONFIRM_EACH_TOOL,
+        ),
+        selected = preferences.taskAuthorizationPolicy,
+        onSelect = { onPreferencesChanged(preferences.copy(taskAuthorizationPolicy = it)) },
+    )
+    SettingSlider("单任务最大步骤", preferences.taskMaxSteps.toFloat(), 1f..30f, "${preferences.taskMaxSteps}") {
+        onPreferencesChanged(preferences.copy(taskMaxSteps = it.toInt()))
+    }
+    SettingSlider("最大重试次数", preferences.taskMaxRetries.toFloat(), 0f..3f, "${preferences.taskMaxRetries}") {
+        onPreferencesChanged(preferences.copy(taskMaxRetries = it.toInt()))
+    }
+    SettingSlider("单步骤超时", preferences.taskStepTimeoutMs / 1_000f, 5f..120f, "${preferences.taskStepTimeoutMs / 1_000} 秒") {
+        onPreferencesChanged(preferences.copy(taskStepTimeoutMs = it.toLong() * 1_000))
+    }
+    SettingSlider("任务总时限", preferences.taskTotalTimeoutMs / 1_000f, 10f..900f, "${preferences.taskTotalTimeoutMs / 1_000} 秒") {
+        onPreferencesChanged(preferences.copy(taskTotalTimeoutMs = it.toLong() * 1_000))
+    }
+    PreferenceSwitch("执行前检查计划", "开启后每个新计划都停在待执行状态，必须由你手动开始。", preferences.requireTaskPlanReview) {
+        onPreferencesChanged(preferences.copy(requireTaskPlanReview = it))
+    }
+    PreferenceSwitch("保留任务历史", "关闭后任务结束时会清除其本机快照；运行中任务仍会保留。", preferences.retainTaskHistory) {
+        onPreferencesChanged(preferences.copy(retainTaskHistory = it))
+    }
+    InfoCard("任务存储", "当前保存 $taskCount 个任务。任务文件位于应用私有目录；清理只删除已结束任务，不会触及暂停或待授权任务。")
+    if (!operationMessage.isNullOrBlank()) InfoCard("操作状态", operationMessage)
+    ActionButton("清理已结束任务历史", danger = true, onClick = onClearTasks)
+}
+
+@Composable
+private fun SettingSlider(title: String, value: Float, range: ClosedFloatingPointRange<Float>, label: String, onChange: (Float) -> Unit) {
+    Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(title, color = FuturePalette.Text, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+            Text(label, color = FuturePalette.Cyan, fontSize = 11.sp)
+        }
+        Slider(value = value.coerceIn(range), onValueChange = onChange, valueRange = range)
+    }
 }
 
 @Composable

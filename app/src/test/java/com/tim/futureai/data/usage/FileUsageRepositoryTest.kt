@@ -40,7 +40,7 @@ class FileUsageRepositoryTest {
         val directory = Files.createTempDirectory("usage-ledger").toFile()
         try {
             val repository = FileUsageRepository(File(directory, "usage.json"))
-            repository.append(UsageRecord("p1", "Provider · model", "model", 125, promptTokens = 10, completionTokens = 4, sessionId = "session-a"))
+            repository.append(UsageRecord("p1", "Provider · model", "model", 125, promptTokens = 10, completionTokens = 4, sessionId = "session-a", taskId = "task-a", taskStepId = "plan"))
             repository.append(UsageRecord("p1", "Provider · model", "model", 90, errorType = "Network", sessionId = "session-b"))
             val snapshot = FileUsageRepository(File(directory, "usage.json")).load()
             assertEquals(2, snapshot.requestCount)
@@ -50,6 +50,8 @@ class FileUsageRepositoryTest {
             assertEquals(4L, snapshot.completionTokens)
             assertEquals(215L, snapshot.totalDurationMs)
             assertEquals("session-a", snapshot.records.first().sessionId)
+            assertEquals("task-a", snapshot.records.first().taskId)
+            assertEquals("plan", snapshot.records.first().taskStepId)
             assertEquals(2, snapshot.bySession().size)
             assertEquals(1, snapshot.bySession().first { it.sessionId == "session-b" }.errorCount)
             assertNull(snapshot.estimatedUsdByModel(mapOf(UsagePriceKey("p1", "model") to ModelUsagePrice(0.15, 0.60))))
