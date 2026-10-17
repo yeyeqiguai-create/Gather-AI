@@ -12,6 +12,7 @@ import androidx.activity.ComponentActivity
 import android.animation.ValueAnimator
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -228,6 +229,8 @@ class MainActivity : ComponentActivity() {
                 val composeScope = rememberCoroutineScope()
                 val taskHistory by taskEngine.tasks.collectAsState()
                 val screenTransitionMillis = if (appPreferences.animationsEnabled && systemAnimationsEnabled) 180 else 0
+                // System back / edge swipe: leave settings or task center instead of closing the app.
+                BackHandler(enabled = showSettings || showTaskCenter) { showSettings = false; showTaskCenter = false }
                 val speechController = remember {
                     SpeechController(applicationContext,
                         onSpeakingChanged = { key -> composeScope.launch(Dispatchers.Main) { speakingMessageKey = key } },

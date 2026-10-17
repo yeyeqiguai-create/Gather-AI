@@ -198,6 +198,18 @@ fun FutureGlyph(
                 line(7.5f, 12f, 10.5f, 15f, 1.8f)
                 line(10.5f, 15f, 16.8f, 8.5f, 1.8f)
             }
+            "mic" -> {
+                // Capsule body + stand, matching the shared 1.8 stroke weight.
+                drawRoundRect(tint, topLeft = point(9f, 3f), size = androidx.compose.ui.geometry.Size(6f * unit, 10f * unit), cornerRadius = androidx.compose.ui.geometry.CornerRadius(3f * unit), style = Stroke(1.8f * unit))
+                val path = Path().apply {
+                    moveTo(6f * unit, 11f * unit)
+                    cubicTo(6f * unit, 15f * unit, 8.5f * unit, 17f * unit, 12f * unit, 17f * unit)
+                    cubicTo(15.5f * unit, 17f * unit, 18f * unit, 15f * unit, 18f * unit, 11f * unit)
+                }
+                drawPath(path, tint, style = Stroke(1.8f * unit, cap = StrokeCap.Round))
+                line(12f, 17f, 12f, 21f, 1.8f)
+                line(8.5f, 21f, 15.5f, 21f, 1.8f)
+            }
             "cloud" -> {
                 val path = Path().apply {
                     moveTo(7f * unit, 18f * unit)

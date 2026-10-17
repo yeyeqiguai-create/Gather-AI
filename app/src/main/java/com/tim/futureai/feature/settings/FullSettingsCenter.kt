@@ -1,5 +1,6 @@
 package com.tim.futureai.feature.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -109,6 +110,9 @@ fun FullSettingsCenter(
     updatesContent: @Composable () -> Unit,
 ) {
     var section by rememberSaveable { mutableStateOf(SettingsSection.GENERAL) }
+    // Edge swipe / system back: subpage returns to the category home first,
+    // the category home then leaves the settings center (handled by MainActivity).
+    BackHandler(enabled = section != SettingsSection.GENERAL) { section = SettingsSection.GENERAL }
     var query by rememberSaveable { mutableStateOf("") }
     var confirmation by remember { mutableStateOf<SettingsSection?>(null) }
     var showPrototype by rememberSaveable { mutableStateOf(false) }
@@ -210,7 +214,7 @@ private fun SettingsPageFrame(title: String, onBack: () -> Unit, content: @Compo
         },
         source = {
             Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 18.dp, end = 18.dp, top = 78.dp, bottom = 24.dp),
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 18.dp, end = 18.dp, top = 104.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 content()
@@ -227,15 +231,13 @@ private fun GeneralPage(
     onReset: () -> Unit, providerCount: Int,
     profiles: List<AiSettings>,
 ) {
-    Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("$version · versionCode $code", color = FuturePalette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-        Text("构建：$build", color = FuturePalette.Muted, fontSize = 11.sp)
-        Text("默认模型：$defaultModel", color = FuturePalette.Cyan, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Text("更新状态：$update", color = FuturePalette.Muted, fontSize = 11.sp)
-        Text("已配置服务商：$providerCount", color = FuturePalette.Muted, fontSize = 11.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = onCopyVersion) { Text("复制版本信息") }
-            TextButton(onClick = { onOpen(SettingsSection.UPDATES) }) { Text("检查更新") }
+    Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(16.dp)).padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text("$version · v$code · $build", color = FuturePalette.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text("默认模型：$defaultModel", color = FuturePalette.Cyan, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("更新：$update · 服务商 $providerCount", color = FuturePalette.Muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text("复制版本信息", color = FuturePalette.VioletBright, fontSize = 10.sp, modifier = Modifier.clickable(onClick = onCopyVersion).padding(horizontal = 8.dp, vertical = 4.dp))
+            Text("检查更新", color = FuturePalette.VioletBright, fontSize = 10.sp, modifier = Modifier.clickable { onOpen(SettingsSection.UPDATES) }.padding(horizontal = 8.dp, vertical = 4.dp))
         }
     }
     SearchField(query, onQuery)

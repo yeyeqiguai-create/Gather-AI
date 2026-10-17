@@ -44,7 +44,7 @@ private fun materials(
 /** Liquid Indigo — the Gather AI brand default: deep space blue-violet. */
 val LiquidIndigoSpec: LiquidSpec = run {
     val m = materials(
-        glassTint = Color(0xFF151B33), glassTintAlpha = 0.52f,
+        glassTint = Color(0xFF151B33), glassTintAlpha = 0.80f,
         edge = Color(0xFFDDE3FF), edgeAlpha = 0.30f,
         darkTint = Color(0xFF0B0F1E), accentTint = Color(0xFF5A48C2),
     )
@@ -58,7 +58,7 @@ val LiquidIndigoSpec: LiquidSpec = run {
         text = Color(0xFFF4F2FF), muted = Color(0xFFA6AAC0),
         accent = Color(0xFF9B7BFF), accentBright = Color(0xFFB7A1FF), cyan = Color(0xFF7BD9F5),
         success = Color(0xFF8AE0C2), danger = Color(0xFFFF9BAF), warning = Color(0xFFFFC96B),
-        surfaceTint = Color(0xFF171C2D), surfaceTintAlpha = 0.80f, surfaceEdge = Color(0x36DDE3FF),
+        surfaceTint = Color(0xFF171C2D), surfaceTintAlpha = 0.94f, surfaceEdge = Color(0x36DDE3FF),
         codeBlockBackground = Color(0xFF10131D), codeBlockHeader = Color(0xFF1B2030), codeText = Color(0xFFD8E6FF),
         clear = m.getValue(GlassMaterial.CLEAR), frosted = m.getValue(GlassMaterial.FROSTED),
         liquid = m.getValue(GlassMaterial.LIQUID), dark = m.getValue(GlassMaterial.DARK),
@@ -69,7 +69,7 @@ val LiquidIndigoSpec: LiquidSpec = run {
 /** Obsidian — restrained graphite and silver for long, focused sessions. */
 val ObsidianSpec: LiquidSpec = run {
     val m = materials(
-        glassTint = Color(0xFF16181C), glassTintAlpha = 0.58f,
+        glassTint = Color(0xFF16181C), glassTintAlpha = 0.84f,
         edge = Color(0xFFE8EAEE), edgeAlpha = 0.22f,
         darkTint = Color(0xFF0C0D10), accentTint = Color(0xFF43505E),
         blurScale = 0.9f,
@@ -84,7 +84,7 @@ val ObsidianSpec: LiquidSpec = run {
         text = Color(0xFFECEDEF), muted = Color(0xFF9A9DA5),
         accent = Color(0xFFAEB6C2), accentBright = Color(0xFFCBD2DB), cyan = Color(0xFF8FB6C9),
         success = Color(0xFF7FCDA9), danger = Color(0xFFF08C9E), warning = Color(0xFFE8B96A),
-        surfaceTint = Color(0xFF16181D), surfaceTintAlpha = 0.84f, surfaceEdge = Color(0x2AE8EAEE),
+        surfaceTint = Color(0xFF16181D), surfaceTintAlpha = 0.95f, surfaceEdge = Color(0x2AE8EAEE),
         codeBlockBackground = Color(0xFF101114), codeBlockHeader = Color(0xFF191B1F), codeText = Color(0xFFD4DBE4),
         clear = m.getValue(GlassMaterial.CLEAR), frosted = m.getValue(GlassMaterial.FROSTED),
         liquid = m.getValue(GlassMaterial.LIQUID), dark = m.getValue(GlassMaterial.DARK),
@@ -95,7 +95,7 @@ val ObsidianSpec: LiquidSpec = run {
 /** Arctic — light glacier glass with crisp contrast. */
 val ArcticSpec: LiquidSpec = run {
     val m = materials(
-        glassTint = Color(0xFFF7FBFF), glassTintAlpha = 0.60f,
+        glassTint = Color(0xFFF7FBFF), glassTintAlpha = 0.84f,
         edge = Color(0xFFFFFFFF), edgeAlpha = 0.85f,
         darkTint = Color(0xFF2A3A48), accentTint = Color(0xFF1E6FA8),
     )
@@ -109,7 +109,7 @@ val ArcticSpec: LiquidSpec = run {
         text = Color(0xFF16222E), muted = Color(0xFF4E5E6E),
         accent = Color(0xFF1E6FA8), accentBright = Color(0xFF15598A), cyan = Color(0xFF087B9B),
         success = Color(0xFF16785B), danger = Color(0xFFB32645), warning = Color(0xFF9A6B1F),
-        surfaceTint = Color(0xFFFFFFFF), surfaceTintAlpha = 0.74f, surfaceEdge = Color(0x59FFFFFF),
+        surfaceTint = Color(0xFFFFFFFF), surfaceTintAlpha = 0.94f, surfaceEdge = Color(0x59FFFFFF),
         codeBlockBackground = Color(0xFF1B2530), codeBlockHeader = Color(0xFF243140), codeText = Color(0xFFD8E9F7),
         clear = m.getValue(GlassMaterial.CLEAR), frosted = m.getValue(GlassMaterial.FROSTED),
         liquid = m.getValue(GlassMaterial.LIQUID), dark = m.getValue(GlassMaterial.DARK),
@@ -120,7 +120,7 @@ val ArcticSpec: LiquidSpec = run {
 /** Aurora — deep teal-navy with living aurora light. */
 val AuroraSpec: LiquidSpec = run {
     val m = materials(
-        glassTint = Color(0xFF0F2028), glassTintAlpha = 0.50f,
+        glassTint = Color(0xFF0F2028), glassTintAlpha = 0.80f,
         edge = Color(0xFFD9FFF3), edgeAlpha = 0.30f,
         darkTint = Color(0xFF081318), accentTint = Color(0xFF157A6B),
     )
@@ -134,7 +134,7 @@ val AuroraSpec: LiquidSpec = run {
         text = Color(0xFFEEF7F4), muted = Color(0xFF9BB5B0),
         accent = Color(0xFF4FE3C1), accentBright = Color(0xFF7FF0DA), cyan = Color(0xFF6FD3F0),
         success = Color(0xFF4FE3C1), danger = Color(0xFFFF9BAF), warning = Color(0xFFFFC96B),
-        surfaceTint = Color(0xFF102329), surfaceTintAlpha = 0.78f, surfaceEdge = Color(0x36D9FFF3),
+        surfaceTint = Color(0xFF102329), surfaceTintAlpha = 0.94f, surfaceEdge = Color(0x36D9FFF3),
         codeBlockBackground = Color(0xFF0D1A20), codeBlockHeader = Color(0xFF15252C), codeText = Color(0xFFD2ECF4),
         clear = m.getValue(GlassMaterial.CLEAR), frosted = m.getValue(GlassMaterial.FROSTED),
         liquid = m.getValue(GlassMaterial.LIQUID), dark = m.getValue(GlassMaterial.DARK),

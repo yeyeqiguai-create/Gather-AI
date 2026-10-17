@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.7.01 (Revise2) — Beta / Internal Development
+
+- Readability-first Liquid Reality: raised glass tint opacity across all four themes so chat body, composer and dialogs stay clearly readable; blur and refraction remain style accents.
+- Replaced the emoji microphone and text plus icons in the composer with vector glyphs matching the shared stroke style and sizing (functionality unchanged).
+- Compact settings home: slimmer version card (one-line version/build, model and update/provider summary inline) and reduced top padding so search and categories enter the first screen sooner.
+- Fixed system back: settings center and its subpages (and task center) now return step-by-step via system back / edge swipe instead of closing the app; opted into Android predictive back (`enableOnBackInvokedCallback`).
+- New launcher icon: glassy planet-and-orbit brand mark as the adaptive icon foreground over the dark ambient background, with a matching planet/ring monochrome layer; legacy (pre-Android 8) launcher entries updated to the same art.
+- versionCode 17; no business logic changes.
+
 ## v0.1.7.01 (Revise1) — Beta / Internal Development
 
 - Project Liquid Reality: full visual identity rebuild with a shared design system (`DESIGN_SYSTEM.md` + `ui.liquid`), not a color swap.

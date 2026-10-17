@@ -794,11 +794,11 @@ private fun Composer(
                 },
             )
             Box(
-                modifier = Modifier.size(38.dp).clip(CircleShape).clickable(enabled = !isLoading, onClick = onPickAttachments),
+                modifier = Modifier.size(40.dp).clip(CircleShape).clickable(enabled = !isLoading, onClick = onPickAttachments),
                 contentAlignment = Alignment.Center,
-            ) { Text("＋", color = FuturePalette.Cyan, fontSize = 23.sp) }
-            Box(Modifier.size(36.dp).clip(CircleShape).clickable(enabled = !isLoading, onClick = onListen), contentAlignment = Alignment.Center) {
-                Text("🎙", fontSize = 17.sp)
+            ) { FutureGlyph("plus", tint = FuturePalette.Cyan, size = 19.dp) }
+            Box(Modifier.size(40.dp).clip(CircleShape).clickable(enabled = !isLoading, onClick = onListen), contentAlignment = Alignment.Center) {
+                FutureGlyph("mic", tint = FuturePalette.Cyan, size = 19.dp)
             }
             Spacer(Modifier.width(3.dp))
             Box(

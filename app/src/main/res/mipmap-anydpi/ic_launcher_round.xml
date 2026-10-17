@@ -1,9 +1,7 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt"
-    android:width="48dp" android:height="48dp" android:viewportWidth="108" android:viewportHeight="108">
-    <path android:pathData="M54,3A51,51 0,1 0,54 105A51,51 0,1 0,54 3Z"><aapt:attr name="android:fillColor"><gradient android:type="linear" android:startX="3" android:startY="105" android:endX="105" android:endY="3"><item android:offset="0" android:color="#070A16"/><item android:offset="1" android:color="#32215A"/></gradient></aapt:attr></path>
-    <path android:pathData="M54,31L54,25M40,40L34,35M68,40L74,35M40,68L34,73M68,68L74,73M54,77L54,83" android:strokeColor="#8FA1FF" android:strokeWidth="3" android:strokeLineCap="round"/>
-    <path android:fillColor="#00000000" android:pathData="M54,31L72,41L72,67L54,77L36,67L36,41z" android:strokeColor="#A5B3FF" android:strokeWidth="4" android:strokeLineJoin="round"/>
-    <path android:pathData="M54,42L58,50L67,54L58,58L54,67L50,58L41,54L50,50z"><aapt:attr name="android:fillColor"><gradient android:type="linear" android:startX="41" android:startY="67" android:endX="67" android:endY="42"><item android:offset="0" android:color="#57D7FF"/><item android:offset="1" android:color="#C08CFF"/></gradient></aapt:attr></path>
-    <path android:fillColor="#86E8FF" android:pathData="M54,25m-4,0a4,4 0,1 0,8 0a4,4 0,1 0,-8 0M28,31m-3.5,0a3.5,3.5 0,1 0,7 0a3.5,3.5 0,1 0,-7 0M80,31m-3.5,0a3.5,3.5 0,1 0,7 0a3.5,3.5 0,1 0,-7 0M28,77m-3.5,0a3.5,3.5 0,1 0,7 0a3.5,3.5 0,1 0,-7 0M80,77m-3.5,0a3.5,3.5 0,1 0,7 0a3.5,3.5 0,1 0,-7 0M54,88m-4,0a4,4 0,1 0,8 0a4,4 0,1 0,-8 0"/>
-</vector>
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/ic_launcher_background" />
+    <inset android:drawable="@drawable/ic_launcher_foreground_image"
+        android:insetLeft="4dp" android:insetTop="4dp"
+        android:insetRight="4dp" android:insetBottom="4dp" />
+</layer-list>

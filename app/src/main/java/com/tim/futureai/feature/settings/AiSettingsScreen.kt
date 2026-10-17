@@ -126,7 +126,7 @@ fun AiSettingsScreen(
         },
         source = {
             Column(
-                modifier = Modifier.fillMaxSize().statusBarsPadding().padding(top = 86.dp).imePadding().navigationBarsPadding()
+                modifier = Modifier.fillMaxSize().statusBarsPadding().padding(top = 104.dp).imePadding().navigationBarsPadding()
                     .verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(17.dp),
             ) {

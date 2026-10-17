@@ -3,11 +3,21 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Planet with orbit ring + moon: monochrome silhouette of the new brand mark. -->
     <path
-        android:fillColor="#00000000"
-        android:pathData="M74,39C69,32 61,28 53,28C39,28 28,39 28,54C28,69 39,80 54,80C68,80 79,69 79,55L61,55"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="7"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round" />
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,60m-16,0a16,16 0,1 0,32 0a16,16 0,1 0,-32 0" />
+    <group
+        android:pivotX="54"
+        android:pivotY="60"
+        android:rotation="-24">
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M20,60a34,12 0,1 0,68 0a34,12 0,1 0,-68 0"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="5" />
+    </group>
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M81,37m-7,0a7,7 0,1 0,14 0a7,7 0,1 0,-14 0" />
 </vector>
