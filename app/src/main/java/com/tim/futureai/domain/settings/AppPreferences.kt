@@ -16,6 +16,7 @@ data class AppPreferences(
     val lowPerformanceMode: Boolean = false,
     val dynamicBackground: Boolean = false,
     val fontScale: Float = 1f,
+    val onboardingDone: Boolean = false,
     val compactChat: Boolean = false,
     val animationsEnabled: Boolean = true,
     val showModelNames: Boolean = true,

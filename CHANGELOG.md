@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.9.02 (Revise2) — Beta / Internal Development
+
+- First-run onboarding: connect a provider with Base URL, model and key, real connection test, save or skip; persisted once so it does not reappear.
+- versionCode 24.
+
 ## v0.1.9.02 (Revise1) — Beta / Internal Development
 
 - Audit & history screen: unified task events, repair records and proactive notifications with kind filters and non-sensitive clipboard export.

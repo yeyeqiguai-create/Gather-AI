@@ -110,6 +110,7 @@ import com.tim.futureai.platform.notify.AndroidProactiveNotificationSink
 import com.tim.futureai.platform.schedule.HealthWorkScheduler
 import com.tim.futureai.platform.schedule.PeriodicHealthRunner
 import com.tim.futureai.platform.speech.SpeechController
+import com.tim.futureai.feature.onboarding.OnboardingScreen
 import com.tim.futureai.feature.audit.AuditEntry
 import com.tim.futureai.feature.audit.AuditScreen
 import com.tim.futureai.feature.arena.ArenaScreen
@@ -292,6 +293,49 @@ class MainActivity : ComponentActivity() {
                 var showArena by remember { mutableStateOf(false) }
                 var showAudit by remember { mutableStateOf(false) }
                 var auditEntries by remember { mutableStateOf<List<AuditEntry>>(emptyList()) }
+
+                var showOnboarding by remember { mutableStateOf(!appPreferences.onboardingDone) }
+                if (showOnboarding) {
+                    val onboardingScope = androidx.compose.runtime.rememberCoroutineScope()
+                    androidx.compose.ui.window.Dialog(
+                        onDismissRequest = {},
+                        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+                    ) {
+                        OnboardingScreen(
+                            onTest = { baseUrl, model, apiKey, report ->
+                                onboardingScope.launch {
+                                    val profile = com.tim.futureai.domain.ai.AiSettings(
+                                        id = "onboarding-" + System.currentTimeMillis(),
+                                        name = "默认配置", baseUrl = baseUrl, model = model, apiKey = apiKey,
+                                    )
+                                    settingsManager.save(profile)
+                                    val provider = providerRegistry.create(profile.providerProtocol) { settingsManager.configFor(profile.id) }
+                                    when (val result = provider.testConnection()) {
+                                        is com.tim.futureai.core.common.AppResult.Success -> report("连接成功")
+                                        is com.tim.futureai.core.common.AppResult.Failure -> report("连接失败：" + result.error)
+                                    }
+                                }
+                            },
+                            onFinish = { baseUrl, model, apiKey ->
+                                val profile = com.tim.futureai.domain.ai.AiSettings(
+                                    id = "onboarding-" + System.currentTimeMillis(),
+                                    name = "默认配置", baseUrl = baseUrl, model = model, apiKey = apiKey,
+                                )
+                                settingsManager.save(profile)
+                                viewModel.setModelChoices(settingsManager.profiles())
+                                appPreferences = appPreferences.copy(onboardingDone = true)
+                                appPreferencesManager.save(appPreferences)
+                                showOnboarding = false
+                            },
+                            onSkip = {
+                                appPreferences = appPreferences.copy(onboardingDone = true)
+                                appPreferencesManager.save(appPreferences)
+                                showOnboarding = false
+                            },
+                        )
+                    }
+                }
+
                 var latestReport by remember { mutableStateOf<com.tim.futureai.domain.health.HealthReport?>(null) }
                 var repairingCheckId by remember { mutableStateOf<String?>(null) }
                 var arenaRunning by remember { mutableStateOf(false) }
