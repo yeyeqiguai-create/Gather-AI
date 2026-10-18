@@ -88,6 +88,7 @@ fun AiSettingsScreen(
     profiles: List<AiSettings> = emptyList(),
     onSelectProfile: (String) -> Unit = {},
     onCreateProfile: () -> Unit = {},
+    onCreateLocalPreset: (com.tim.futureai.domain.ai.LocalModelTier) -> Unit = {},
     onDeleteProfile: (String) -> Unit = {},
     onTestConnection: () -> Unit = {},
     usage: UsageSnapshot = UsageSnapshot(),
@@ -148,6 +149,11 @@ fun AiSettingsScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("服务商与模型", color = FuturePalette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                         TextButton(onClick = onCreateProfile) { Text("＋ 新增", color = FuturePalette.VioletBright) }
+                        com.tim.futureai.domain.ai.LocalModelTier.entries.forEach { tier ->
+                            TextButton(onClick = { onCreateLocalPreset(tier) }) {
+                                Text(tier.label, color = FuturePalette.Cyan, fontSize = 11.sp)
+                            }
+                        }
                     }
                     profiles.forEach { profile ->
                         Row(

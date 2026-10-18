@@ -247,6 +247,28 @@ class MainActivity : ComponentActivity() {
                 val protocol = settingsManager.loadProfile(profileId)?.providerProtocol ?: ProviderProtocol.OPENAI_COMPATIBLE
                 providerRegistry.create(protocol) { settingsManager.configFor(profileId, modelId) }
             },
+            smartLocalRouter = { prompt ->
+                val candidates = settingsManager.profiles().filter { it.isAvailableForRouting }
+                val routerProfile = candidates.firstOrNull { it.name.contains("0.4B") || it.model.contains("0.4") }
+                if (routerProfile == null) null else {
+                    val routerProvider = providerRegistry.create(routerProfile.providerProtocol) { settingsManager.configFor(routerProfile.id) }
+                    val message = com.tim.futureai.domain.model.ChatMessage(
+                        sessionId = "local-router", role = com.tim.futureai.domain.model.MessageRole.USER,
+                        content = com.tim.futureai.domain.ai.LocalModels.routerPrompt(prompt),
+                    )
+                    when (val result = routerProvider.complete(listOf(message))) {
+                        is com.tim.futureai.core.common.AppResult.Success -> {
+                            val decision = com.tim.futureai.domain.ai.LocalModels.parseDecision(result.data)
+                            val target = decision?.let { d -> candidates.firstOrNull { c -> c.name.contains(d.tier.label) } }
+                            if (decision != null && target != null) com.tim.futureai.domain.ai.SmartLocalRoute(
+                                profileId = target.id, modelId = target.model,
+                                explanation = "本地智能路由：" + decision.tier.label + " · " + decision.reason.ifBlank { "由 0.4B 判断" },
+                            ) else null
+                        }
+                        else -> null
+                    }
+                }
+            },
             defaultModelProfileId = {
                 val preferences = appPreferencesManager.load()
                 if (preferences.usesAutomaticModelSelection()) {
@@ -1045,6 +1067,15 @@ class MainActivity : ComponentActivity() {
                                     id = UUID.randomUUID().toString(), name = "新配置",
                                 )
                                 settingsMessage = null
+                            },
+                            onCreateLocalPreset = { tier ->
+                                settings = AiSettings(
+                                    id = UUID.randomUUID().toString(),
+                                    name = com.tim.futureai.domain.ai.LocalModels.profileName(tier),
+                                    baseUrl = com.tim.futureai.domain.ai.LocalModels.DEFAULT_BASE_URL,
+                                    model = tier.defaultTag,
+                                )
+                                settingsMessage = "已填入本地预设；请按你的 Ollama 标签核对模型名后保存"
                             },
                             onDeleteProfile = { id ->
                                 if (settingsManager.deleteProfile(id)) {

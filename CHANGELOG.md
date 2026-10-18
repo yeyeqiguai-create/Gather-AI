@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.9.03 (Revise1) — Beta / Internal Development
+
+- Local model presets: 0.4B / 1B / 2B quick-add buttons create Ollama-style profiles (editable default base URL and tags).
+- Smart local routing: in automatic mode the 0.4B profile classifies each request (strict JSON) and selects 0.4B / 1B / 2B, with reason shown in the model explanation; failures fall back to normal auto selection.
+- versionCode 25.
+
 ## v0.1.9.02 (Revise2) — Beta / Internal Development
 
 - First-run onboarding: connect a provider with Base URL, model and key, real connection test, save or skip; persisted once so it does not reappear.

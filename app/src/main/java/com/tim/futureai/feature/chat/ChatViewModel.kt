@@ -37,6 +37,7 @@ class ChatViewModel(
     private val defaultModelProfileId: () -> String? = { null },
     private val usageRepository: UsageRepository? = null,
     private val providerForModel: ((profileId: String, modelId: String) -> AiProvider)? = null,
+    private val smartLocalRouter: (suspend (String) -> com.tim.futureai.domain.ai.SmartLocalRoute?)? = null,
 ) {
     private var sessionData = mutableListOf<ChatSessionData>()
     private var _state = initial.copy(isHistoryLoading = sessionsRepository != null)
@@ -362,7 +363,12 @@ class ChatViewModel(
         val streamText = StringBuilder()
         synchronized(streamTextLock) { activeStreamText = streamText }
         val savedChoiceId = sessionData.firstOrNull { it.session.id == sessionId }?.session?.modelProfileId
-        val requestedChoiceId = choiceOverride ?: savedChoiceId ?: _state.selectedModelId ?: defaultModelProfileId()
+        val initialChoiceId = choiceOverride ?: savedChoiceId ?: _state.selectedModelId ?: defaultModelProfileId()
+        val userPrompt = history.lastOrNull { it.role == MessageRole.USER }?.content.orEmpty()
+        val smartRoute = if (initialChoiceId == ChatModelChoice.AUTO_ID && smartLocalRouter != null) {
+            runCatching { kotlinx.coroutines.withTimeout(12_000) { smartLocalRouter?.invoke(userPrompt) } }.getOrNull()
+        } else null
+        val requestedChoiceId = smartRoute?.profileId ?: initialChoiceId
         val automatic = requestedChoiceId == ChatModelChoice.AUTO_ID
         val configuredChoices = _state.modelChoices.filterNot { it.isAutomatic }
         val choices = if (configuredChoices.isEmpty() && requestedChoiceId == null) {
@@ -370,10 +376,10 @@ class ChatViewModel(
         } else configuredChoices
         val manualRouteId = when {
             automatic -> null
+            smartRoute != null -> smartRoute.profileId
             requestedChoiceId == null && configuredChoices.isEmpty() -> ChatModelChoice.DEFAULT_PROVIDER_ID
             else -> requestedChoiceId
         }
-        val userPrompt = history.lastOrNull { it.role == MessageRole.USER }?.content.orEmpty()
         val contextText = history.joinToString("\n") { message ->
             message.content + message.attachments.joinToString("") { it.textContent }
         }
@@ -426,7 +432,7 @@ class ChatViewModel(
         activeRequestModelName = candidate.modelId
         val tokenUsage = java.util.concurrent.atomic.AtomicReference<AiTokenUsage?>(null)
         requestStatusBySession[sessionId] = ChatRequestStatus.REQUESTING
-        setState(_state.copy(requestStatus = ChatRequestStatus.REQUESTING, activeModelExplanation = selection.explanation))
+        setState(_state.copy(requestStatus = ChatRequestStatus.REQUESTING, activeModelExplanation = smartRoute?.explanation ?: selection.explanation))
         persistAll()
         val result = try {
             (if (candidate.profileId == ChatModelChoice.DEFAULT_PROVIDER_ID) provider
