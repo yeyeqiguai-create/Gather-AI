@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.9.03 (Revise2) — Beta / Internal Development
+
+- Fixed local model chat: Android cleartext traffic is now allowed so http:// Ollama endpoints work; local presets fill a placeholder key (Ollama ignores it) so the profile counts as configured; preset message explains emulator vs phone base URL and OLLAMA_HOST.
+- versionCode 26.
+
 ## v0.1.9.03 (Revise1) — Beta / Internal Development
 
 - Local model presets: 0.4B / 1B / 2B quick-add buttons create Ollama-style profiles (editable default base URL and tags).

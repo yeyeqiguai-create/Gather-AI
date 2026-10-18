@@ -1074,8 +1074,9 @@ class MainActivity : ComponentActivity() {
                                     name = com.tim.futureai.domain.ai.LocalModels.profileName(tier),
                                     baseUrl = com.tim.futureai.domain.ai.LocalModels.DEFAULT_BASE_URL,
                                     model = tier.defaultTag,
+                                    apiKey = "ollama",
                                 )
-                                settingsMessage = "已填入本地预设；请按你的 Ollama 标签核对模型名后保存"
+                                settingsMessage = "已填入本地预设（Ollama 无需真实密钥，已填占位）。模拟器用 10.0.2.2；真机改电脑局域网 IP，并给 Ollama 设置 OLLAMA_HOST=0.0.0.0"
                             },
                             onDeleteProfile = { id ->
                                 if (settingsManager.deleteProfile(id)) {
