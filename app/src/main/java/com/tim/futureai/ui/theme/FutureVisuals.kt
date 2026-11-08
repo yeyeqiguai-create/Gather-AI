@@ -13,10 +13,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
@@ -69,9 +72,36 @@ fun FutureBackdrop(modifier: Modifier = Modifier, content: @Composable () -> Uni
 @Composable
 fun Modifier.glassPanel(shape: Shape = ContinuousCornerShape(24.dp)): Modifier {
     val spec = LocalLiquidSpec.current
-    return this.clip(shape).background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(
-        androidx.compose.ui.graphics.lerp(spec.surfaceTint, Color.White, if (spec.isLight) 0.055f else 0.008f), spec.surfaceTint,
-    ))).border(1.dp, spec.surfaceEdge.copy(alpha = 0.72f), shape)
+    return this.clip(shape)
+        .background(Brush.verticalGradient(listOf(
+            androidx.compose.ui.graphics.lerp(spec.surfaceTint, Color.White, if (spec.isLight) 0.055f else 0.018f),
+            spec.surfaceTint,
+        )))
+        .border(1.dp, spec.surfaceEdge.copy(alpha = 0.72f), shape)
+        .drawWithCache {
+            val path = when (val outline = shape.createOutline(size, layoutDirection, this)) {
+                is Outline.Rectangle -> Path().apply { addRect(outline.rect) }
+                is Outline.Rounded -> Path().apply { addRoundRect(outline.roundRect) }
+                is Outline.Generic -> outline.path
+            }
+            val rim = Brush.sweepGradient(listOf(
+                Color.White.copy(alpha = if (spec.isLight) 0.24f else 0.18f),
+                spec.surfaceEdge.copy(alpha = 0.42f),
+                Color.White.copy(alpha = if (spec.isLight) 0.58f else 0.36f),
+                spec.surfaceEdge.copy(alpha = 0.24f),
+                Color.White.copy(alpha = if (spec.isLight) 0.30f else 0.22f),
+            ))
+            val topReflection = Brush.verticalGradient(
+                0f to Color.White.copy(alpha = if (spec.isLight) 0.46f else 0.12f),
+                0.10f to Color.White.copy(alpha = if (spec.isLight) 0.12f else 0.035f),
+                0.42f to Color.Transparent,
+            )
+            onDrawWithContent {
+                drawContent()
+                drawPath(path, rim, style = Stroke(width = 1.25.dp.toPx()))
+                drawPath(path, topReflection, style = Stroke(width = 2.2.dp.toPx()))
+            }
+        }
 }
 
 @Composable

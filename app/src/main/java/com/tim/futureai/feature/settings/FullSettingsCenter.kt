@@ -36,17 +36,17 @@ import androidx.compose.foundation.shape.CircleShape
 import com.tim.futureai.ui.theme.ContinuousCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
+import com.tim.futureai.ui.components.GatherAlertDialog as AlertDialog
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.IconButton
+import com.tim.futureai.ui.components.GatherIconButton as IconButton
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
+import com.tim.futureai.ui.components.GatherButton as Button
+import com.tim.futureai.ui.components.GatherCheckBox as Checkbox
+import com.tim.futureai.ui.components.GatherSlider as Slider
+import com.tim.futureai.ui.components.GatherSwitch as Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.tim.futureai.ui.components.GatherTextButton as TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf

@@ -23,7 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import com.tim.futureai.ui.theme.ContinuousCornerShape
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.tim.futureai.ui.components.GatherTextButton as TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf

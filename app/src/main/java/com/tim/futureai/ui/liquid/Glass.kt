@@ -204,6 +204,18 @@ fun Modifier.glassSurface(
                 0.6f to m.edgeHighlight.copy(alpha = m.edgeAlpha * 0.35f),
                 1f to m.edgeHighlight.copy(alpha = m.edgeAlpha * 0.15f),
             )
+            val reflectedRim = Brush.sweepGradient(
+                listOf(
+                    Color.White.copy(alpha = m.edgeAlpha * 1.15f),
+                    Color.White.copy(alpha = m.edgeAlpha * 0.18f),
+                    Color.White.copy(alpha = m.edgeAlpha * 0.52f),
+                    Color.White.copy(alpha = m.edgeAlpha * 0.10f),
+                    Color.White.copy(alpha = m.edgeAlpha * 0.88f),
+                    Color.White.copy(alpha = m.edgeAlpha * 0.16f),
+                    Color.White.copy(alpha = m.edgeAlpha * 0.58f),
+                    Color.White.copy(alpha = m.edgeAlpha * 0.12f),
+                ),
+            )
             onDrawWithContent {
                 // Evaluate while drawing: a cached decision must never sample
                 // the same layer that is currently being recorded.
@@ -240,6 +252,8 @@ fun Modifier.glassSurface(
                 drawPath(edgePath, m.tint, tintAlpha)
                 drawRect(brush = specular)
                 drawPath(edgePath, edgeBrush, style = Stroke(width = 1.dp.toPx()))
+                drawPath(edgePath, reflectedRim, style = Stroke(width = 2.4.dp.toPx()))
+                drawPath(edgePath, Color.White.copy(alpha = m.edgeAlpha * 0.28f), style = Stroke(width = 0.65.dp.toPx()))
                 // 3. Panel content, crisp on top.
                 drawContent()
             }

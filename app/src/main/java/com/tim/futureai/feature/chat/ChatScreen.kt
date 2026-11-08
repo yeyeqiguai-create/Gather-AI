@@ -1,5 +1,6 @@
 package com.tim.futureai.feature.chat
 
+import com.tim.futureai.ui.components.GatherCheckBox
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeOut
@@ -38,7 +39,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
+import com.tim.futureai.ui.components.GatherButton as Button
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateDpAsState
@@ -58,20 +59,20 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.AlertDialog
+import com.tim.futureai.ui.components.GatherCircularProgressIndicator as CircularProgressIndicator
+import com.tim.futureai.ui.components.GatherAlertDialog as AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.ModalDrawerSheet
+import com.tim.futureai.ui.components.GatherTextButton as TextButton
+import com.tim.futureai.ui.components.GatherDropdownMenu as DropdownMenu
+import com.tim.futureai.ui.components.GatherDropdownMenuItem as DropdownMenuItem
+import com.tim.futureai.ui.components.GatherOutlinedTextField as OutlinedTextField
+import com.tim.futureai.ui.components.GatherModalNavigationDrawer as ModalNavigationDrawer
+import com.tim.futureai.ui.components.GatherModalDrawerSheet as ModalDrawerSheet
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.IconButton
+import com.tim.futureai.ui.components.GatherIconButton as IconButton
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.graphics.SolidColor
@@ -548,7 +549,7 @@ private fun SessionManagerDialog(
                             TextButton(onClick = { editingId = null }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("取消", color = FuturePalette.Muted, fontSize = 11.sp) }
                         } else {
                             if (batchMode) {
-                                androidx.compose.material3.Checkbox(
+                                GatherCheckBox(
                                     checked = session.id in selected,
                                     enabled = session.id != activeSessionId,
                                     onCheckedChange = {
@@ -570,12 +571,12 @@ private fun SessionManagerDialog(
                                 }
                             }
                             if (!batchMode) {
-                                androidx.compose.material3.IconButton(onClick = { onTogglePinned(session.id) }) {
+                                IconButton(onClick = { onTogglePinned(session.id) }) {
                                     FutureGlyph(if (session.isPinned) "pin_filled" else "pin", tint = if (session.isPinned) FuturePalette.Cyan else FuturePalette.Muted, size = 17.dp)
                                 }
-                                androidx.compose.material3.IconButton(onClick = { editingId = session.id; editText = session.title }) { FutureGlyph("edit", tint = FuturePalette.Muted, size = 17.dp) }
+                                IconButton(onClick = { editingId = session.id; editText = session.title }) { FutureGlyph("edit", tint = FuturePalette.Muted, size = 17.dp) }
                                 TextButton(onClick = { onArchive(session.id, !session.isArchived) }) { Text(if (session.isArchived) "恢复" else "归档", color = FuturePalette.Cyan, fontSize = 10.sp) }
-                                androidx.compose.material3.IconButton(onClick = { deleteTarget = session }) { FutureGlyph("delete", tint = FuturePalette.Danger, size = 17.dp) }
+                                IconButton(onClick = { deleteTarget = session }) { FutureGlyph("delete", tint = FuturePalette.Danger, size = 17.dp) }
                             }
                         }
                     }

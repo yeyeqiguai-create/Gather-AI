@@ -219,15 +219,15 @@ fun LiquidVisualTheme.spec(accentColor: AccentColor = AccentColor.NEUTRAL): Liqu
     val accent = if (accentColor == AccentColor.NEUTRAL) base.text else Color(accentColor.primaryHex)
     // A neutral optical material across every palette; accents belong to controls.
     val frost = LiquidMaterialSpec(
-        blurDp = 20f, tint = base.ambientMiddle, tintAlpha = if (base.isLight) 0.62f else 0.56f,
+        blurDp = 22f, tint = base.ambientMiddle, tintAlpha = if (base.isLight) 0.48f else 0.40f,
         edgeHighlight = if (base.isLight) Color.Black else Color.White,
-        edgeAlpha = if (base.isLight) 0.055f else 0.075f,
-        specularAlpha = if (base.isLight) 0.07f else 0.018f, refractionBandDp = 0f,
+        edgeAlpha = if (base.isLight) 0.20f else 0.24f,
+        specularAlpha = if (base.isLight) 0.15f else 0.09f, refractionBandDp = 0f,
     )
-    val lens = frost.copy(blurDp = 18f, tint = base.surfaceTint,
-        tintAlpha = if (base.isLight) 0.44f else 0.38f,
-        edgeAlpha = if (base.isLight) 0.085f else 0.12f,
-        specularAlpha = if (base.isLight) 0.13f else 0.028f, refractionBandDp = 10f)
+    val lens = frost.copy(blurDp = 20f, tint = base.surfaceTint,
+        tintAlpha = if (base.isLight) 0.30f else 0.24f,
+        edgeAlpha = if (base.isLight) 0.34f else 0.42f,
+        specularAlpha = if (base.isLight) 0.32f else 0.20f, refractionBandDp = 14f)
     return base.copy(
         clear = frost.copy(tintAlpha = 0.50f), frosted = frost, liquid = lens,
         accent = accent,

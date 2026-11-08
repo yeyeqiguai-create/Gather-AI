@@ -18,9 +18,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import com.tim.futureai.ui.theme.ContinuousCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material3.Button
+import com.tim.futureai.ui.components.GatherButton as Button
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.tim.futureai.ui.components.GatherTextButton as TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf

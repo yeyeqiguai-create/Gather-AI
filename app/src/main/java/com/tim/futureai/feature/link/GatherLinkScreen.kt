@@ -1,8 +1,19 @@
 package com.tim.futureai.feature.link
 
+import com.tim.futureai.ui.components.GatherAlertDialog as AlertDialog
+import com.tim.futureai.ui.components.GatherFilterChip as FilterChip
+import com.tim.futureai.ui.components.GatherButton as Button
+import com.tim.futureai.ui.components.GatherCheckBox as Checkbox
+import com.tim.futureai.ui.components.GatherDropdownMenu as DropdownMenu
+import com.tim.futureai.ui.components.GatherDropdownMenuItem as DropdownMenuItem
+import com.tim.futureai.ui.components.GatherIconButton as IconButton
+import com.tim.futureai.ui.components.GatherSwitch as Switch
+import com.tim.futureai.ui.components.GatherTextButton as TextButton
+
 import com.tim.futureai.ui.liquid.GlassMaterial
 import com.tim.futureai.ui.liquid.glassSurface
 import com.tim.futureai.ui.liquid.LiquidStage
+import com.tim.futureai.ui.theme.glassPanel
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onSizeChanged
@@ -32,7 +43,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
 import com.tim.futureai.ui.theme.ContinuousCornerShape
-import androidx.compose.material3.*
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -182,9 +195,9 @@ fun GatherLinkScreen(session: GatherLinkSession, onBack: () -> Unit, onShareInvi
                 }
                 item {
                     Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        FilterChip(colors = FilterChipDefaults.filterChipColors(selectedContainerColor = colors.accent.copy(alpha = 0.14f), selectedLabelColor = colors.accent), selected = activeTab == 0, onClick = { activeTab = 0; fileQuery = ""; sortMode = "名称" }, label = { Text("共享文件  " + state.sharedFiles.size, fontSize = 12.sp) })
+                        FilterChip(selected = activeTab == 0, onClick = { activeTab = 0; fileQuery = ""; sortMode = "名称" }, selectedContainerColor = colors.accent.copy(alpha = 0.14f), selectedLabelColor = colors.accent, label = { Text("共享文件  " + state.sharedFiles.size, fontSize = 12.sp) })
                         Spacer(Modifier.width(8.dp))
-                        FilterChip(colors = FilterChipDefaults.filterChipColors(selectedContainerColor = colors.accent.copy(alpha = 0.14f), selectedLabelColor = colors.accent), selected = activeTab == 1, onClick = { activeTab = 1; fileQuery = ""; sortMode = "时间" }, label = { Text("收件箱  " + state.receivedFiles.size, fontSize = 12.sp) })
+                        FilterChip(selected = activeTab == 1, onClick = { activeTab = 1; fileQuery = ""; sortMode = "时间" }, selectedContainerColor = colors.accent.copy(alpha = 0.14f), selectedLabelColor = colors.accent, label = { Text("收件箱  " + state.receivedFiles.size, fontSize = 12.sp) })
                         Spacer(Modifier.weight(1f))
                         if (activeTab == 0 && state.sharedFiles.isNotEmpty()) TextButton(onClick = { scope.launch { session.setSharedFiles(emptyList()) } }) { Text("清空", fontSize = 11.sp) }
                     }
@@ -301,7 +314,7 @@ fun GatherLinkScreen(session: GatherLinkSession, onBack: () -> Unit, onShareInvi
     val shape = ContinuousCornerShape(16.dp)
     Column(
         modifier.fillMaxWidth().animateContentSize(animationSpec = if (reduce) snap() else spring(dampingRatio = 0.90f, stiffness = 360f))
-            .clip(shape).background(colors.panel).border(1.dp, colors.line, shape).padding(16.dp),
+            .glassPanel(shape).padding(16.dp),
         content = content,
     )
 }

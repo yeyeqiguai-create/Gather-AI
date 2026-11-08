@@ -30,19 +30,19 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.AlertDialog
+import com.tim.futureai.ui.components.GatherButton as Button
+import com.tim.futureai.ui.components.GatherAlertDialog as AlertDialog
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import com.tim.futureai.ui.components.GatherCheckBox as Checkbox
+import com.tim.futureai.ui.components.GatherDropdownMenu as DropdownMenu
+import com.tim.futureai.ui.components.GatherDropdownMenuItem as DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import com.tim.futureai.ui.components.GatherOutlinedTextField as OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.tim.futureai.ui.components.GatherTextButton as TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -792,17 +792,17 @@ private fun SettingFieldLabel(label: String, hint: String, modifier: Modifier = 
 }
 
 @Composable
-private fun fieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedTextColor = FuturePalette.Text,
-    unfocusedTextColor = FuturePalette.Text,
-    focusedContainerColor = Color(0x55101421),
-    unfocusedContainerColor = Color(0x44101421),
-    focusedBorderColor = FuturePalette.VioletBright,
-    unfocusedBorderColor = FuturePalette.Edge,
-    cursorColor = FuturePalette.VioletBright,
-    focusedTrailingIconColor = FuturePalette.Muted,
-    unfocusedTrailingIconColor = FuturePalette.Muted,
-)
+private fun fieldColors() = LocalLiquidSpec.current.let { spec -> OutlinedTextFieldDefaults.colors(
+    focusedTextColor = spec.text,
+    unfocusedTextColor = spec.text,
+    focusedContainerColor = spec.surfaceTint.copy(alpha = 0.52f),
+    unfocusedContainerColor = spec.surfaceTint.copy(alpha = 0.32f),
+    focusedBorderColor = spec.accentBright,
+    unfocusedBorderColor = spec.surfaceEdge,
+    cursorColor = spec.accentBright,
+    focusedTrailingIconColor = spec.muted,
+    unfocusedTrailingIconColor = spec.muted,
+) }
 
 private fun ModelTask.label(): String = when (this) {
     ModelTask.GENERAL -> "普通对话"

@@ -7,8 +7,8 @@ val gatherVersionName = providers.gradleProperty("gather.versionName").get()
 val gatherVersionPattern = Regex("""^v(\d+)\.(\d+)\.(\d+)\.(\d{2}) \(Revise([1-9]\d*)\)$""")
 val gatherVersionMatch = gatherVersionPattern.matchEntire(gatherVersionName)
     ?: error("gather.versionName must use the format vX.X.X.XX (ReviseX)")
-require(gatherVersionMatch.groupValues[1] == "0" && gatherVersionMatch.groupValues[2] == "1") {
-    "Gather AI must remain on the 0.1.x release line until its foundational features are complete"
+require(gatherVersionMatch.groupValues[1] == "0" && gatherVersionMatch.groupValues[2] in setOf("1", "2")) {
+    "Gather AI 0.1.x and 0.2.x release lines are supported"
 }
 require(gatherVersionMatch.groupValues[4].toInt() in 1..99) {
     "The two-digit mini-version component must be between 01 and 99"

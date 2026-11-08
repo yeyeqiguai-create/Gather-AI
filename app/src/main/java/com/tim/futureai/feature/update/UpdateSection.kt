@@ -9,10 +9,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import com.tim.futureai.ui.theme.ContinuousCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.LinearProgressIndicator
+import com.tim.futureai.ui.components.GatherButton as Button
+import com.tim.futureai.ui.components.GatherLinearProgressIndicator as LinearProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.tim.futureai.ui.components.GatherTextButton as TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier

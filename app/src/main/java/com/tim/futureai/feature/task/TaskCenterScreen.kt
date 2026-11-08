@@ -27,11 +27,11 @@ import androidx.compose.foundation.shape.CircleShape
 import com.tim.futureai.ui.theme.ContinuousCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
+import com.tim.futureai.ui.components.GatherAlertDialog as AlertDialog
+import com.tim.futureai.ui.components.GatherButton as Button
+import com.tim.futureai.ui.components.GatherCircularProgressIndicator as CircularProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.tim.futureai.ui.components.GatherTextButton as TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState

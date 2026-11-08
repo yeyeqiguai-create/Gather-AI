@@ -4,7 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Button
+import com.tim.futureai.ui.components.GatherButton as Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -27,5 +27,5 @@ internal fun LinkGlassScene(reducedMotion: Boolean, modifier: Modifier = Modifie
 
 @Composable
 internal fun LiquidButton(onClick: () -> Unit, modifier: Modifier = Modifier, shape: androidx.compose.ui.graphics.Shape = com.tim.futureai.ui.theme.ContinuousCornerShape(12.dp), content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
-    Button(onClick = onClick, modifier = modifier, shape = shape, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary), content = content)
+    Button(onClick = onClick, modifier = modifier, shape = shape, content = content)
 }
