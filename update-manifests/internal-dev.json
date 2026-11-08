@@ -2,22 +2,22 @@
   {
     "draft": false,
     "prerelease": true,
-    "tag_name": "v0.1.11.02-Revise2-internal-dev",
-    "name": "Gather AI v0.1.11.02 R2（修改2）内部开发版",
-    "body": "Gather AI v0.1.11.02 R2（修改2）· 内部开发预发布\n\n修复更新检查：GitHub Releases API 遇到共享出口限流或网络错误时，自动切换至 raw GitHub 静态清单；保留版本筛选、update.json 对照和 APK SHA-256 校验。\n\n验证：Gradle 单元测试 272 项通过；Lint 0 errors；Debug APK 构建成功。此处没有实体设备安装验收。\n\n内部开发版使用 Android Debug 签名。\n\n<div hidden>\nversionCode: 66\nversionName: v0.1.11.02 (Revise2)\n</div>",
+    "tag_name": "v0.1.11.02-Revise3-internal-dev",
+    "name": "Gather AI v0.1.11.02 R3（修改3）内部开发版",
+    "body": "Gather AI v0.1.11.02 R3（修改3）· 内部开发预发布\n\n恢复到 0.11 图标改动之前使用的蓝紫玻璃行星 Gather 图标，并统一自适应图标和旧版 Android 图标资源。\n\n此为 Android Debug 签名内部版。\n\n<div hidden>\nversionCode: 67\nversionName: v0.1.11.02 (Revise3)\n</div>",
     "published_at": "2026-11-08T00:00:00Z",
     "assets": [
       {
-        "name": "Gather-AI-v0.1.11.02-Revise2-internal-dev.apk",
-        "browser_download_url": "https://github.com/yeyeqiguai-create/Gather-AI/releases/download/v0.1.11.02-Revise2-internal-dev/Gather-AI-v0.1.11.02-Revise2-internal-dev.apk",
-        "digest": "sha256:e19cef813d23a10fc521d0e684ff000c22f4dfaf36fa4687009d5ff9eb6e0997",
-        "size": 16472916
+        "name": "Gather-AI-v0.1.11.02-Revise3-internal-dev.apk",
+        "browser_download_url": "https://github.com/yeyeqiguai-create/Gather-AI/releases/download/v0.1.11.02-Revise3-internal-dev/Gather-AI-v0.1.11.02-Revise3-internal-dev.apk",
+        "digest": "sha256:3f59c3396e4c3e49eb28607225c7730b93ec04bf125c67598838a42efcbe7664",
+        "size": 16473112
       },
       {
         "name": "update.json",
-        "browser_download_url": "https://github.com/yeyeqiguai-create/Gather-AI/releases/download/v0.1.11.02-Revise2-internal-dev/update.json",
-        "digest": "sha256:c143bf269db2228127a902886bdc2f9f83e3ad818b061d955c0aa7aed6b6285a",
-        "size": 737
+        "browser_download_url": "https://github.com/yeyeqiguai-create/Gather-AI/releases/download/v0.1.11.02-Revise3-internal-dev/update.json",
+        "digest": "sha256:0b9e943477a00b4852b1e5af30edaf0d7d0b1ff8d3a5c10ab48038a9d96e2ccb",
+        "size": 544
       }
     ]
   }

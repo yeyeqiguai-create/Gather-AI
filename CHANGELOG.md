@@ -1,3 +1,6 @@
+## v0.1.11.02 (Revise3) — Restore Gather Launcher Icon
+
+- Restore the established blue glass Gather planet launcher artwork used before the 0.11 monochrome icon redesign. Keep adaptive and legacy launcher resources consistent. versionCode 67.
 ## v0.1.11.02 (Revise2) — Update Check Route Fallback
 
 - Fall back from GitHub Releases API rate limits or transport failures to a low-quota static manifest hosted on raw.githubusercontent.com.
