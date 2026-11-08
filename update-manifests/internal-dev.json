@@ -2,6 +2,28 @@
   {
     "draft": false,
     "prerelease": true,
+    "tag_name": "v0.2.0.01-Revise2-internal-dev",
+    "name": "Gather AI v0.2.0.01（Revise2）内部开发版",
+    "body": "Gather AI v0.2.0.01（Revise2）内部开发版\n\n服务商连接与启动标识修正：\n- Android 12 及以上启动动画改用 Gather 蓝色玻璃图标，修正旧版白色单色行星图标残留。\n- AI 服务商配置重做为选择服务商、粘贴 API Key、读取并选择模型；服务商自动提供 API 地址与协议。\n- 支持 OpenAI、Anthropic、Google Gemini、DeepSeek、阿里云百炼、月之暗面、智谱、硅基流动和 OpenRouter。\n- 移除手动 Base URL、模型 ID、模型能力和上下文容量填写；模型从服务商目录读取，已知能力按模型 ID 自动识别。\n- 重做服务商与模型选择器，简化密钥输入、读取模型、测试连接和保存流程。\n- 切换已保存配置的服务商时要求重新输入 API Key，避免旧密钥误用。\n\nAPK 为 Android Debug 签名内部开发版。\n\n<div hidden>\nversionCode: 71\nversionName: v0.2.0.01 (Revise2)\n</div>",
+    "published_at": "2026-11-08T13:37:42Z",
+    "assets": [
+      {
+        "name": "Gather-AI-v0.2.0.01-Revise2-internal-dev.apk",
+        "browser_download_url": "https://github.com/yeyeqiguai-create/Gather-AI/releases/download/v0.2.0.01-Revise2-internal-dev/Gather-AI-v0.2.0.01-Revise2-internal-dev.apk",
+        "digest": "sha256:82bcd70b370e90dc4795d70cb84675dedd3d6b110d7238a2d27bb90fc70d93d6",
+        "size": 16538648
+      },
+      {
+        "name": "update.json",
+        "browser_download_url": "https://github.com/yeyeqiguai-create/Gather-AI/releases/download/v0.2.0.01-Revise2-internal-dev/update.json",
+        "digest": "sha256:6cef9d34085b4a51ddcbe8217be1f4efd629659312158f47159f0482f2a416b6",
+        "size": 1171
+      }
+    ]
+  },
+  {
+    "draft": false,
+    "prerelease": true,
     "tag_name": "v0.2.0.01-Revise1-internal-dev",
     "name": "Gather AI v0.2.0.01（Revise1）内部开发版",
     "body": "Gather AI 0.2.0.01（Revise1）内部开发版\n\n0.2 视觉系统重构：统一中性色、连续曲率、液态玻璃和交互反馈。共 32 项界面与交互改进：\n\n1. 重绘主操作按钮，统一强调色渐变、反射边和按压缩放。\n2. 重绘次级文字按钮，提供轻量玻璃底与清晰焦点边界。\n3. 重绘图标按钮，扩大可点目标并增加无涟漪按压反馈。\n4. 重绘开关，加入滑块弹性过渡与状态播报。\n5. 重绘复选框，改用连续曲率并保留辅助功能状态。\n6. 重绘滑杆，支持点击定位、拖动与离散步进。\n7. 为滑杆补充 TalkBack 进度语义与无障碍调节。\n8. 重绘确认弹窗：统一边框、材质、按钮排布和安全区。\n9. 重绘输入框：统一圆角、底色、光标、边框和提示文本。\n10. 输入框焦点色跟随当前主题与强调色。\n11. 错误、禁用、占位和多行输入状态统一呈现。\n12. 重绘下拉菜单容器，采用连续曲率与柔和投影。\n13. 重绘下拉菜单条目，取消系统涟漪并统一图标与文字间距。\n14. 重绘筛选标签，增加选中态描边与主题色反馈。\n15. 重绘圆形加载指示器，采用 Gather 双色弧线与顺滑旋转。\n16. 重绘下载进度条，使用双段强调渐变与数值缓动。\n17. 重绘聊天侧栏抽屉面板，统一材质、边缘和系统栏留白。\n18. 调整抽屉遮罩深度，让主内容退场层级更清楚。\n19. 为玻璃表面增加角度变化的环绕反射光。\n20. 增加第二层细边缘高光，增强玻璃折射轮廓。\n21. 提高液态玻璃边缘反射强度，同时保持文字区域清晰。\n22. 降低底色雾化，让背景透射更自然，减少塑料感。\n23. 增强液态镜片折射带宽与按压深度响应。\n24. 为内容卡片统一顶部柔光与周边反射。\n25. 聊天、消息管理、会话菜单采用同一套控件与玻璃规则。\n26. AI 服务商、模型、密钥与协议输入跟随当前主题配色。\n27. 任务中心、模型竞技场及确认流程统一按钮、开关和弹窗。\n28. 健康诊断、审计和通知页面统一加载与状态提示。\n29. Gather Link 连接、文件列表、筛选和设置采用统一控件。\n30. 首次引导和更新管理统一按钮、进度与弹窗视觉。\n31. 主要卡片和控件采用连续曲率边缘，减少几何风格断层。\n32. 动效尊重减少动态效果设置；控件状态提供语义反馈。\n\nAPK 为 Android Debug 签名内部开发版。\n\n<div hidden>\nversionCode: 70\nversionName: v0.2.0.01 (Revise1)\n</div>",
