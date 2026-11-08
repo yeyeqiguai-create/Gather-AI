@@ -141,16 +141,32 @@ class UpdateLogicTest {
         assertFalse(UpdateInstallFlow.completedDuringProcessRestart(11, 12, 10, 100L, 101L))
     }
 
+    @Test fun apiRateLimitFallsBackToStaticManifest() {
+        val urls = mutableListOf<String>()
+        val repository = com.tim.futureai.data.update.GitHubUpdateRepository(
+            "v0.1.3.06 (Revise1)", 10, true,
+            releasesUrl = "https://api.example/releases",
+            textFetcher = { url ->
+                urls += url
+                if (url.contains("api.example")) throw IOException("HTTP 403 rate limit")
+                "[]"
+            },
+            fallbackManifestUrl = "https://raw.example/internal-dev.json",
+        )
+        assertEquals(UpdateCheckResult.UpToDate, runSuspend { repository.check() })
+        assertEquals(listOf("https://api.example/releases", "https://raw.example/internal-dev.json"), urls)
+    }
+
     @Test fun networkFailureCanBeRetriedImmediately() {
         val calls = AtomicInteger()
         val repository = com.tim.futureai.data.update.GitHubUpdateRepository(
             "v0.1.3.06 (Revise1)", 10, true,
             releasesUrl = "https://example.invalid/releases",
-            textFetcher = { if (calls.incrementAndGet() == 1) throw IOException("network unavailable") else "[]" },
+            textFetcher = { calls.incrementAndGet(); throw IOException("network unavailable") },
         )
         assertTrue(runSuspend { repository.check() } is UpdateCheckResult.Failed)
-        assertEquals(UpdateCheckResult.UpToDate, runSuspend { repository.check() })
-        assertEquals(2, calls.get())
+        assertTrue(runSuspend { repository.check() } is UpdateCheckResult.Failed)
+        assertEquals(4, calls.get())
     }
 
     @Test fun malformedReleaseVersionAndMetadataAreRejected() {

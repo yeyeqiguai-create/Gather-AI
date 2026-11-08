@@ -1,3 +1,8 @@
+## v0.1.11.02 (Revise2) — Update Check Route Fallback
+
+- Fall back from GitHub Releases API rate limits or transport failures to a low-quota static manifest hosted on raw.githubusercontent.com.
+- Keep release selection, APK SHA-256 verification and update metadata validation on the fallback route.
+- Add a focused regression test for API 403/429 fallback and retry behavior. versionCode 66.
 ## v0.1.11.02 (Revise1) — Continuous Surfaces & Readability
 
 - Replace standard rounded rectangles across the app with sampled superellipse corners for continuous curvature; retain true circular controls.

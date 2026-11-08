@@ -1,6 +1,6 @@
 # Gather AI
 
-Current internal build: **v0.1.11.02 (Revise1)**, versionCode **65**.
+Current internal build: **v0.1.11.02 (Revise2)**, versionCode **66**.
 
 The 0.11 interface uses restrained monochrome and low-saturation themes, optical glass headers/composer, coordinated page transitions, a searchable conversation drawer, rich Markdown and a reorganized settings center. Glass intensity, lightweight rendering, animations and typography are configurable. Android 7+ is supported; background blur requires Android 12+, and edge refraction requires Android 13+.
 
@@ -90,7 +90,7 @@ Gather Link 目前仅支持同一可信局域网内的 IPv4 连接，不提供�
 
 ## 应用内更新协议
 
-- 客户端先读取 GitHub Releases API；兼容标签格式为 `vX.X.X.XX-ReviseN[-internal-dev]`。内部开发版保留 GitHub Pre-release 标记。
+- 客户端先读取 GitHub Releases API；遇到 API 限流或网络故障时回退至 `raw.githubusercontent.com` 的静态 Release 清单；发版时同步更新 `update-manifests/internal-dev.json` 或 `formal.json`。兼容标签格式为 `vX.X.X.XX-ReviseN[-internal-dev]`。内部开发版保留 GitHub Pre-release 标记。
 - Release 正文必须包含用户更新说明，并在隐藏的 `<div hidden>` 中提供 `versionCode: N`，供旧客户端识别；新客户端解析后不会把该字段展示为更新说明。
 - 每个版本只上传一个 `.apk`，并同时上传 `update.json`。旧客户端忽略 JSON 文件，仍从 Release 正文、APK 资源和 GitHub SHA-256 digest 检查更新。
 - 新客户端通过该 Release 的长期资源地址读取 `update.json`，并以 GitHub 资源 SHA-256 作缓存键：`https://github.com/yeyeqiguai-create/Gather-AI/releases/download/<tag>/update.json?download=1&sha256=<asset-digest>`。其中包含 `versionName`、`versionCode`、`releaseNotes`、`apkUrl`、`sha256`；客户端会与 Release 标签、正文及 APK 资源交叉校验。

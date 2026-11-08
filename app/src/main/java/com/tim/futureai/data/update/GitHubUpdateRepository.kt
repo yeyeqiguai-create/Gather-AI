@@ -26,11 +26,27 @@ class GitHubUpdateRepository(
     private val isInternalBuild: Boolean,
     private val releasesUrl: String = RELEASES_URL,
     private val textFetcher: (String) -> String = ::fetchUpdateText,
+    private val fallbackManifestUrl: String = if (isInternalBuild) INTERNAL_MANIFEST_URL else FORMAL_MANIFEST_URL,
 ) {
     suspend fun check(): UpdateCheckResult = withContext(Dispatchers.IO) {
         val mode = if (isInternalBuild) UpdateCheckMode.INTERNAL_DEV else UpdateCheckMode.FORMAL
         try {
-            val response = textFetcher(releasesUrl)
+            val response = try {
+                textFetcher(releasesUrl)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (primaryFailure: IOException) {
+                // GitHub's unauthenticated API quota is shared by every user on
+                // a network. Fall back to the same release data from raw GitHub,
+                // which is served by the repository CDN instead of that API.
+                try {
+                    textFetcher(fallbackManifestUrl)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    throw primaryFailure
+                }
+            }
             val parsed = GitHubReleaseParser.parseDetailed(response, mode)
             when (val selected = com.tim.futureai.feature.update.UpdateSelector.select(
                 parsed.releases, currentVersionName, currentVersionCode, mode, parsed.rejected,
@@ -185,6 +201,8 @@ class GitHubUpdateRepository(
     companion object {
         private const val MAX_APK_BYTES = 300L * 1024 * 1024
         private const val RELEASES_URL = "https://api.github.com/repos/yeyeqiguai-create/Gather-AI/releases?per_page=100"
+        private const val INTERNAL_MANIFEST_URL = "https://raw.githubusercontent.com/yeyeqiguai-create/Gather-AI/main/update-manifests/internal-dev.json"
+        private const val FORMAL_MANIFEST_URL = "https://raw.githubusercontent.com/yeyeqiguai-create/Gather-AI/main/update-manifests/formal.json"
     }
 }
 
