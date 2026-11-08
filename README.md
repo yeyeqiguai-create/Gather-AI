@@ -1,6 +1,6 @@
 # Gather AI
 
-Current internal build: **v0.1.11.02 (Revise3)**, versionCode **67**.
+Current internal build: **v0.1.11.02 (Revise4)**, versionCode **68**.
 
 The 0.11 interface uses restrained monochrome and low-saturation themes, optical glass headers/composer, coordinated page transitions, a searchable conversation drawer, rich Markdown and a reorganized settings center. Glass intensity, lightweight rendering, animations and typography are configurable. Android 7+ is supported; background blur requires Android 12+, and edge refraction requires Android 13+.
 

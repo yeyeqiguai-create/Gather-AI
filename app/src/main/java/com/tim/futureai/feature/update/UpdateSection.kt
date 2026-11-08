@@ -48,19 +48,25 @@ fun UpdateSection(
     Column(Modifier.fillMaxWidth().animateContentSize().glassPanel(ContinuousCornerShape(22.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("应用更新", color = FuturePalette.Text, fontSize = 15.sp)
         Text("当前版本：${androidx.compose.ui.platform.LocalContext.current.packageManager.getPackageInfo(androidx.compose.ui.platform.LocalContext.current.packageName, 0).versionName ?: "未知"}", color = FuturePalette.Muted, fontSize = 11.sp)
-        AnimatedContent(targetState = result, label = "update-status-transition") { state -> when (state) {
-            UpdateCheckResult.UpToDate -> Text("当前已是最新版本", color = FuturePalette.Success, fontSize = 12.sp)
-            UpdateCheckResult.NoInstallableApk -> Text("发现更新，但 Release 没有可验证的 APK", color = FuturePalette.Danger, fontSize = 12.sp)
-            is UpdateCheckResult.InvalidMetadata -> Text(state.message, color = FuturePalette.Danger, fontSize = 12.sp)
-            is UpdateCheckResult.Failed -> Text(state.message, color = FuturePalette.Danger, fontSize = 12.sp)
-            is UpdateCheckResult.Available -> {
-                Text("新版本：${state.release.versionName} · ${state.release.channel.label}", color = FuturePalette.VioletBright, fontSize = 12.sp)
-                Text("发布日期：${state.release.publishedAt.take(10).ifBlank { "未知" }}", color = FuturePalette.Muted, fontSize = 10.sp)
-                if (state.release.notes.isNotBlank()) Text(state.release.notes.take(1600), color = FuturePalette.Text, fontSize = 11.sp, lineHeight = 16.sp)
-                TextButton(onClick = onViewNotes) { Text("查看完整更新说明", color = FuturePalette.Cyan, fontSize = 11.sp) }
+        AnimatedContent(targetState = result, label = "update-status-transition") { state ->
+            // AnimatedContent needs one measured root. Emitting several sibling
+            // Text nodes directly here overlays release title, notes and date.
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                when (state) {
+                    UpdateCheckResult.UpToDate -> Text("当前已是最新版本", color = FuturePalette.Success, fontSize = 12.sp)
+                    UpdateCheckResult.NoInstallableApk -> Text("发现更新，但 Release 没有可验证的 APK", color = FuturePalette.Danger, fontSize = 12.sp)
+                    is UpdateCheckResult.InvalidMetadata -> Text(state.message, color = FuturePalette.Danger, fontSize = 12.sp)
+                    is UpdateCheckResult.Failed -> Text(state.message, color = FuturePalette.Danger, fontSize = 12.sp)
+                    is UpdateCheckResult.Available -> {
+                        Text("新版本：${state.release.versionName} · ${state.release.channel.label}", color = FuturePalette.VioletBright, fontSize = 12.sp)
+                        Text("发布日期：${state.release.publishedAt.take(10).ifBlank { "未知" }}", color = FuturePalette.Muted, fontSize = 10.sp)
+                        if (state.release.notes.isNotBlank()) Text(state.release.notes.take(1600), color = FuturePalette.Text, fontSize = 11.sp, lineHeight = 16.sp)
+                        TextButton(onClick = onViewNotes) { Text("查看完整更新说明", color = FuturePalette.Cyan, fontSize = 11.sp) }
+                    }
+                    null -> Text(if (checking) "正在检查更新…" else "启动时自动检查；也可手动检查", color = FuturePalette.Muted, fontSize = 11.sp)
+                }
             }
-            null -> Text(if (checking) "正在检查更新…" else "启动时自动检查；也可手动检查", color = FuturePalette.Muted, fontSize = 11.sp)
-        } }
+        }
         if (downloadProgress != null && downloadProgress < 100) {
             val animatedProgress by animateFloatAsState(downloadProgress / 100f, label = "apk-download-progress")
             LinearProgressIndicator(progress = { animatedProgress }, modifier = Modifier.fillMaxWidth())

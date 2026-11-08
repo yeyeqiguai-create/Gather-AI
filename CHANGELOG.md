@@ -1,3 +1,6 @@
+## v0.1.11.02 (Revise4) — Update Panel Layout
+
+- Give the update-status animation a single vertical content root so version, date and notes no longer overlap during APK download. versionCode 68.
 ## v0.1.11.02 (Revise3) — Restore Gather Launcher Icon
 
 - Restore the established blue glass Gather planet launcher artwork used before the 0.11 monochrome icon redesign. Keep adaptive and legacy launcher resources consistent. versionCode 67.
