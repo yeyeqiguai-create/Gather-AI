@@ -67,7 +67,7 @@ androidComponents {
         }
         variant.outputs.forEach { output ->
             output.outputFileName.set(
-                "Gather-AI-${gatherVersionName.replace(" ", "-")}-$channel.apk",
+                "Gather-AI-${gatherVersionName.replace(" (Revise", "-Revise").replace(")", "")}-$channel.apk",
             )
         }
     }
