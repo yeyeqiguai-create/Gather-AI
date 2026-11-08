@@ -2,22 +2,22 @@
   {
     "draft": false,
     "prerelease": true,
-    "tag_name": "v0.1.11.02-Revise4-internal-dev",
-    "name": "Gather AI v0.1.11.02 R4（修改4）内部开发版",
-    "body": "Gather AI v0.1.11.02 R4（修改4）· 内部开发预发布\n\n修复更新管理页文字重叠：版本、更新说明、下载状态和操作按钮现在分区纵向排列。恢复之前的蓝紫玻璃行星 Gather 图标，并保留 API 限流时的静态清单回退。\n\nAndroid Debug 签名内部版。\n\n<div hidden>\nversionCode: 68\nversionName: v0.1.11.02 (Revise4)\n</div>",
+    "tag_name": "v0.1.11.02-Revise5-internal-dev",
+    "name": "Gather AI v0.1.11.02 R5（修改5）内部开发版",
+    "body": "Gather AI v0.1.11.02 R5（修改5）· 内部开发预发布\n\n更新检查改为优先读取 raw GitHub 静态清单，避开 Releases API 的共享限流配额；60 秒内复用进程中的清单，CDN 访问失败时再回退 Releases API。\n\nAndroid Debug 签名内部版。\n\n<div hidden>\nversionCode: 69\nversionName: v0.1.11.02 (Revise5)\n</div>",
     "published_at": "2026-11-08T00:00:00Z",
     "assets": [
       {
-        "name": "Gather-AI-v0.1.11.02-Revise4-internal-dev.apk",
-        "browser_download_url": "https://github.com/yeyeqiguai-create/Gather-AI/releases/download/v0.1.11.02-Revise4-internal-dev/Gather-AI-v0.1.11.02-Revise4-internal-dev.apk",
-        "digest": "sha256:d69218c72032203fbb39f913f2e00a13377cb857893c4239fa01fe7fee78ad38",
-        "size": 16473108
+        "name": "Gather-AI-v0.1.11.02-Revise5-internal-dev.apk",
+        "browser_download_url": "https://github.com/yeyeqiguai-create/Gather-AI/releases/download/v0.1.11.02-Revise5-internal-dev/Gather-AI-v0.1.11.02-Revise5-internal-dev.apk",
+        "digest": "sha256:8daa49f61747fd69ec7dd9af1d2bc21d299a799208a07e28683a0015b70b960e",
+        "size": 16473112
       },
       {
         "name": "update.json",
-        "browser_download_url": "https://github.com/yeyeqiguai-create/Gather-AI/releases/download/v0.1.11.02-Revise4-internal-dev/update.json",
-        "digest": "sha256:0917f931447ea2395154b866d11ec99d465c6c9f984649b59bafda0e1e080aef",
-        "size": 697
+        "browser_download_url": "https://github.com/yeyeqiguai-create/Gather-AI/releases/download/v0.1.11.02-Revise5-internal-dev/update.json",
+        "digest": "sha256:11ad6621d257ec04504af81cd4a7baabcb3c020dcebe07f8cf007ef41c04e8bb",
+        "size": 667
       }
     ]
   }

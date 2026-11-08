@@ -141,20 +141,19 @@ class UpdateLogicTest {
         assertFalse(UpdateInstallFlow.completedDuringProcessRestart(11, 12, 10, 100L, 101L))
     }
 
-    @Test fun apiRateLimitFallsBackToStaticManifest() {
+    @Test fun staticManifestIsPreferredOverRateLimitedApi() {
         val urls = mutableListOf<String>()
         val repository = com.tim.futureai.data.update.GitHubUpdateRepository(
             "v0.1.3.06 (Revise1)", 10, true,
             releasesUrl = "https://api.example/releases",
             textFetcher = { url ->
                 urls += url
-                if (url.contains("api.example")) throw IOException("HTTP 403 rate limit")
-                "[]"
+                if (url.contains("raw.example")) "[]" else throw IOException("HTTP 403 rate limit")
             },
             fallbackManifestUrl = "https://raw.example/internal-dev.json",
         )
         assertEquals(UpdateCheckResult.UpToDate, runSuspend { repository.check() })
-        assertEquals(listOf("https://api.example/releases", "https://raw.example/internal-dev.json"), urls)
+        assertEquals(listOf("https://raw.example/internal-dev.json"), urls)
     }
 
     @Test fun networkFailureCanBeRetriedImmediately() {

@@ -1,3 +1,7 @@
+## v0.1.11.02 (Revise5) — Faster Update Checks
+
+- Use the static raw GitHub release manifest as the first update-check route, avoiding the shared unauthenticated API quota on every check.
+- Cache that manifest in memory for 60 seconds and retain the Releases API as a network fallback. versionCode 69.
 ## v0.1.11.02 (Revise4) — Update Panel Layout
 
 - Give the update-status animation a single vertical content root so version, date and notes no longer overlap during APK download. versionCode 68.
