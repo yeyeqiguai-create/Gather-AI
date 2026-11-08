@@ -1,6 +1,7 @@
 package com.tim.futureai.data.chat
 
 import com.tim.futureai.domain.chat.ChatSessionData
+import com.tim.futureai.domain.chat.ChatDraft
 import com.tim.futureai.domain.chat.ChatSessionsSnapshot
 import com.tim.futureai.domain.model.ChatMessage
 import com.tim.futureai.domain.model.ChatAttachment
@@ -13,6 +14,67 @@ import java.io.File
 import java.nio.file.Files
 
 class FileChatSessionsRepositoryTest {
+    @Test fun interruptedReplacementRecoversBackupAndPreservesOriginalBytes() = runBlocking {
+        val dir = Files.createTempDirectory("sessions-recovery").toFile()
+        try {
+            val file = File(dir, "sessions.json")
+            val backup = File(dir, "sessions.json.bak")
+            val repo = FileChatSessionsRepository(file, File(dir, "legacy.json"))
+            val session = ChatSession(id = "old", title = "需要恢复")
+            val snapshot = ChatSessionsSnapshot(listOf(ChatSessionData(session, emptyList(), ChatDraft("未发送"))), session.id)
+            assertTrue(repo.save(snapshot))
+            val original = file.readBytes()
+            assertTrue(file.renameTo(backup))
+            val loaded = repo.load()
+            assertTrue(loaded.recoveredBackup)
+            assertEquals(snapshot, loaded.snapshot)
+            assertTrue(repo.save(loaded.snapshot))
+            assertEquals(snapshot, repo.load().snapshot)
+            val preserved = dir.listFiles()!!.single { it.name.startsWith("sessions.json.recovered-") }
+            assertArrayEquals(original, preserved.readBytes())
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun corruptPrimaryFallsBackToPreservedRecoveryWithoutDeletingEvidence() = runBlocking {
+        val dir = Files.createTempDirectory("sessions-corrupt-primary").toFile()
+        try {
+            val file = File(dir, "sessions.json")
+            val repo = FileChatSessionsRepository(file, File(dir, "legacy.json"))
+            val s = ChatSession(title = "有效备份")
+            val snapshot = ChatSessionsSnapshot(listOf(ChatSessionData(s, emptyList())), s.id)
+            assertTrue(repo.save(snapshot))
+            val original = file.readBytes()
+            val saved = File(dir, "sessions.json.recovered-example.bak")
+            assertTrue(file.renameTo(saved))
+            file.writeText("broken")
+            File(dir, "sessions.json.bak").writeText("also broken")
+            val loaded = repo.load()
+            assertTrue(loaded.recoveredBackup)
+            assertEquals(snapshot, loaded.snapshot)
+            assertEquals("broken", file.readText())
+            assertArrayEquals(original, saved.readBytes())
+        } finally { dir.deleteRecursively() }
+    }
+    @Test fun draftsRoundTripWithoutBecomingMessagesIncludingFailedAttachments() = runBlocking {
+        val dir = Files.createTempDirectory("session-drafts").toFile()
+        try {
+            val file = File(dir, "sessions.json")
+            val draft = ChatDraft("  未完成\n\"第二行\" 😀  ", listOf(
+                ChatAttachment(name = "notes.txt", mimeType = "text/plain", textContent = "附件内容"),
+                ChatAttachment(name = "photo.png", mimeType = "image/png", localPath = "/private/photo.png", previewPath = "/private/preview.jpg"),
+                ChatAttachment(name = "report.pdf", mimeType = "application/pdf", error = "暂不支持此格式"),
+            ))
+            val session = ChatSession(title = "有草稿")
+            val snapshot = ChatSessionsSnapshot(listOf(ChatSessionData(session, emptyList(), draft)), session.id)
+            val repo = FileChatSessionsRepository(file, File(dir, "legacy.json"))
+            assertTrue(repo.save(snapshot))
+            val restored = FileChatSessionsRepository(file, File(dir, "legacy.json")).load()
+            assertFalse(restored.failed)
+            assertEquals(snapshot, restored.snapshot)
+            assertTrue(restored.snapshot.sessions.single().messages.isEmpty())
+        } finally { dir.deleteRecursively() }
+    }
+
     @Test fun savesAndRestoresSeparatedSessionsAndActiveSelection() = runBlocking {
         val dir = Files.createTempDirectory("sessions").toFile()
         try {
@@ -44,6 +106,7 @@ class FileChatSessionsRepositoryTest {
             file.writeText("""{"version":"2","activeSessionId":"s1","sessions":[{"id":"s1","title":"保留","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","messages":[{"id":"m1","sessionId":"s1","role":"USER","content":"历史内容","createdAt":"2026-01-01T00:00:01Z","status":"SENT"}]}]}""")
             val loaded = FileChatSessionsRepository(file, File(dir, "legacy.json")).load()
             assertFalse(loaded.failed)
+            assertTrue(loaded.snapshot.sessions.single().draft.isEmpty)
             assertFalse(loaded.snapshot.sessions.single().session.isPinned)
             assertEquals("历史内容", loaded.snapshot.sessions.single().messages.single().content)
             val pinned = loaded.snapshot.copy(sessions = loaded.snapshot.sessions.map { it.copy(session = it.session.copy(isPinned = true)) })

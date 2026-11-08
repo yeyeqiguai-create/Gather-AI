@@ -41,6 +41,7 @@ data class ChatMessage(
     val createdAt: Instant = Instant.now(),
     val status: MessageStatus = MessageStatus.SENT,
     val attachments: List<ChatAttachment> = emptyList(),
+    val isBookmarked: Boolean = false,
 ) {
     init {
         require(id.isNotBlank()) { "message id must not be blank" }
@@ -65,6 +66,7 @@ data class ChatSession(
     val isPinned: Boolean = false,
     val isArchived: Boolean = false,
     val modelProfileId: String? = null,
+    val systemInstruction: String = "",
 ) {
     init {
         require(id.isNotBlank()) { "session id must not be blank" }

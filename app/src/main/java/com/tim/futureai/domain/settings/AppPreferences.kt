@@ -5,14 +5,40 @@ import com.tim.futureai.domain.task.TaskAuthorizationPolicy
 enum class ThemeMode { DARK, LIGHT, SYSTEM }
 enum class RoutingMode { MANUAL, AUTOMATIC }
 
-/** Liquid Reality theme identity; persisted and mapped to full visual specs in the UI layer. */
-enum class VisualTheme { LIQUID_INDIGO, OBSIDIAN, ARCTIC, AURORA }
+/** Persisted palette presets; legacy themes remain readable for migration. */
+enum class VisualTheme {
+    MONOCHROME_BLACK, MONOCHROME_WHITE, GRAPHITE, MIDNIGHT, DEEP_SEA, ARCTIC,
+    LIQUID_INDIGO, OBSIDIAN, AURORA;
+
+    val isLight: Boolean get() = this == MONOCHROME_WHITE || this == ARCTIC
+
+    companion object {
+        val selectable: List<VisualTheme> = listOf(
+            MONOCHROME_BLACK, MONOCHROME_WHITE, GRAPHITE, MIDNIGHT, DEEP_SEA, ARCTIC,
+        )
+    }
+}
+
+/** User-selectable accent applied consistently to every visual preset. */
+enum class AccentColor(val label: String, val primaryHex: Long, val brightHex: Long, val secondaryHex: Long) {
+    BLUE("蓝", 0xFF4F75D4, 0xFF89A4F0, 0xFF7694C9),
+    CYAN("青", 0xFF3F8398, 0xFF70B6C9, 0xFF86B9C4),
+    VIOLET("紫", 0xFF715C9E, 0xFFA294CD, 0xFF9888BC),
+    MINT("薄荷", 0xFF4D8170, 0xFF7BAE9D, 0xFF83AA98),
+    AMBER("琥珀", 0xFF987243, 0xFFC59C65, 0xFFBA9A69),
+    NEUTRAL("中性灰", 0xFF737B84, 0xFFA5ABB2, 0xFF9AA0A8),
+}
 
 data class AppPreferences(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     /** Liquid Reality theme; falls back to themeMode mapping when absent in storage. */
-    val visualTheme: VisualTheme = VisualTheme.LIQUID_INDIGO,
-    val glassIntensity: Float = 0.6f,
+    val visualTheme: VisualTheme = VisualTheme.GRAPHITE,
+    /** Opt-in: legacy themeMode=SYSTEM must not overwrite an existing manual palette. */
+    val followSystemTheme: Boolean = false,
+    val accentColor: AccentColor = AccentColor.NEUTRAL,
+    val glassIntensity: Float = 0.55f,
+    /** One-time migration marker for appearance migrations. */
+    val visualDesignVersion: Int = 3,
     val lowPerformanceMode: Boolean = false,
     val dynamicBackground: Boolean = false,
     val fontScale: Float = 1f,
@@ -20,7 +46,7 @@ data class AppPreferences(
     val compactChat: Boolean = false,
     val animationsEnabled: Boolean = true,
     val showModelNames: Boolean = true,
-    val showRoutingReason: Boolean = true,
+    val showRoutingReason: Boolean = false,
     val routingMode: RoutingMode = RoutingMode.MANUAL,
     val inheritGlobalModel: Boolean = true,
     val voiceInputEnabled: Boolean = true,
@@ -37,11 +63,21 @@ data class AppPreferences(
     val requireTaskPlanReview: Boolean = true,
     val retainTaskHistory: Boolean = true,
 ) {
+    fun effectiveVisualTheme(systemDark: Boolean): VisualTheme = when {
+        !followSystemTheme -> visualTheme
+        systemDark -> VisualTheme.GRAPHITE
+        else -> VisualTheme.MONOCHROME_WHITE
+    }
+
+    fun selectVisualTheme(theme: VisualTheme): AppPreferences =
+        copy(visualTheme = theme, followSystemTheme = false)
+
     fun normalized(): AppPreferences {
         val stepTimeout = taskStepTimeoutMs.coerceIn(5_000, 120_000)
         return copy(
             fontScale = fontScale.coerceIn(0.85f, 1.25f),
             glassIntensity = glassIntensity.coerceIn(0f, 1f),
+            visualDesignVersion = visualDesignVersion.coerceAtLeast(1),
             historyLimit = historyLimit.coerceIn(0, 5000),
             taskMaxSteps = taskMaxSteps.coerceIn(1, 30),
             taskMaxRetries = taskMaxRetries.coerceIn(0, 3),

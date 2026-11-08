@@ -9,6 +9,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.tim.futureai.domain.health.HealthTrigger
 import java.time.Duration
+import java.util.concurrent.TimeUnit
 
 fun interface PeriodicHealthRunner {
     suspend operator fun invoke(trigger: HealthTrigger)
@@ -29,8 +30,8 @@ class PeriodicHealthWorker(context: Context, parameters: WorkerParameters) : Cor
 
 object HealthWorkScheduler {
     fun schedule(context: Context, interval: Duration = Duration.ofHours(6)) {
-        val request = PeriodicWorkRequestBuilder<PeriodicHealthWorker>(interval)
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, Duration.ofMinutes(10))
+        val request = PeriodicWorkRequestBuilder<PeriodicHealthWorker>(interval.toMillis(), TimeUnit.MILLISECONDS)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.MINUTES)
             .build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             "gather-periodic-health", ExistingPeriodicWorkPolicy.KEEP, request,

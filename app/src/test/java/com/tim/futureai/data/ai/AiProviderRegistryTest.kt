@@ -25,7 +25,7 @@ class AiProviderRegistryTest {
     }
 
     @Test fun unsupportedNativeProtocolFailsClosedWithoutSending() = runBlocking {
-        val registry = AiProviderRegistry()
+        val registry = AiProviderRegistry(emptyMap())
         val result = registry.create(ProviderProtocol.ANTHROPIC_MESSAGES) { error("config must not be read") }
             .complete(listOf(ChatMessage(sessionId = "s", role = MessageRole.USER, content = "hello")))
         assertTrue(result is AppResult.Failure)

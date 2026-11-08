@@ -7,6 +7,7 @@ import com.tim.futureai.domain.ai.AiRequestPhase
 import com.tim.futureai.domain.ai.AiTokenUsage
 import com.tim.futureai.domain.ai.ModelTask
 import com.tim.futureai.domain.chat.ChatSessionData
+import com.tim.futureai.domain.chat.ChatDraft
 import com.tim.futureai.domain.chat.ChatSessionsLoad
 import com.tim.futureai.domain.chat.ChatSessionsRepository
 import com.tim.futureai.domain.chat.ChatSessionsSnapshot
@@ -35,6 +36,234 @@ import org.junit.Test
  * FakeProvider 无挂起点，send() 返回后状态即最终，可直接断言。
  */
 class ChatViewModelTest {
+    @Test fun deletingSessionReleasesOnlyAttachmentsNoLongerReferencedElsewhere() {
+        val shared = ChatAttachment(id = "shared", name = "shared.png", mimeType = "image/png", localPath = "/private/shared")
+        val orphan = ChatAttachment(id = "orphan", name = "orphan.png", mimeType = "image/png", localPath = "/private/orphan")
+        val history = MemoryHistory(listOf(
+            ChatMessage(sessionId = "current", role = MessageRole.USER, content = "keep", attachments = listOf(shared)),
+        ))
+        val removed = mutableListOf<ChatAttachment>()
+        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("ok")), sessionsRepository = history,
+            onUnusedAttachments = removed::addAll)
+        val current = vm.state.activeSessionId
+        vm.newSession()
+        val discarded = vm.state.activeSessionId
+        vm.addAttachments(listOf(shared, orphan))
+        vm.flushPendingChanges()
+        assertTrue(vm.deleteSession(discarded))
+        assertEquals(listOf("orphan"), removed.map { it.id })
+        assertTrue(vm.searchSessionContent("keep").containsKey(current))
+    }
+
+    @Test fun removingLastDraftReferenceReleasesImportedAttachment() {
+        val removed = mutableListOf<ChatAttachment>()
+        val attachment = ChatAttachment(name = "draft.png", mimeType = "image/png", localPath = "/private/draft")
+        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("ok")), onUnusedAttachments = removed::addAll)
+        vm.addAttachments(listOf(attachment))
+        vm.removeAttachment(attachment.id)
+        assertEquals(listOf(attachment.id), removed.map { it.id })
+    }
+    @Test fun searchesSentAndDraftAttachmentNamesLocally() {
+        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("分析结果")))
+        val sentFile = ChatAttachment(name = "马来西亚旅行预算.xlsx", mimeType = "application/octet-stream")
+        val draftFile = ChatAttachment(name = "产品路线图.pdf", mimeType = "application/pdf")
+        vm.addAttachments(listOf(sentFile))
+        vm.updateInput("检查附件")
+        vm.send()
+        val sentSession = vm.state.activeSessionId
+        vm.newSession()
+        val draftSession = vm.state.activeSessionId
+        vm.addAttachments(listOf(draftFile))
+        assertTrue(vm.searchSessionContent("预算")[sentSession]!!.startsWith("附件"))
+        assertTrue(vm.searchSessionContent("路线图")[draftSession]!!.startsWith("附件"))
+        assertTrue(vm.searchSessionContent(".pdf")[draftSession]!!.contains(".pdf"))
+    }
+
+    @Test fun singleAndBulkShareUseCompleteSessionExportsIncludingDraftMetadata() {
+        val history = MemoryHistory(listOf(ChatMessage(
+            sessionId = "current",
+            role = MessageRole.USER,
+            content = "用户问题",
+            status = MessageStatus.FAILED,
+            attachments = listOf(ChatAttachment(name = "问题截图.png", mimeType = "image/png", error = "图片读取失败")),
+        )))
+        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("回复内容")), sessionsRepository = history)
+        val id = vm.state.activeSessionId
+        vm.updateInput("还没写完")
+        vm.addAttachments(listOf(ChatAttachment(name = "草稿附件.pdf", mimeType = "application/pdf")))
+        val exported = vm.exportSession(id)!!
+        assertTrue(exported.startsWith("# 会话"))
+        assertTrue(exported.contains("创建："))
+        assertTrue(exported.contains("最近更新："))
+        assertTrue(exported.contains("## 你 · "))
+        assertTrue(exported.contains("（发送失败）"))
+        assertTrue(exported.contains("问题截图.png（未能读取：图片读取失败）"))
+        assertTrue(exported.contains("## 未发送的草稿"))
+        assertTrue(exported.contains("草稿附件.pdf"))
+    }
+
+    @Test fun bulkSessionExportIncludesEachSelectedSessionHeadingOnce() {
+        val history = MemoryHistory()
+        val first = ChatSessionData(
+            session = ChatSession(id = "first", title = "第一段会话"),
+            messages = listOf(ChatMessage(sessionId = "first", role = MessageRole.USER, content = "第一条内容")),
+        )
+        val second = ChatSessionData(
+            session = ChatSession(id = "second", title = "第二段会话"),
+            messages = listOf(ChatMessage(sessionId = "second", role = MessageRole.USER, content = "第二条内容")),
+        )
+        history.snapshot = ChatSessionsSnapshot(listOf(first, second), "first")
+        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("回复")), sessionsRepository = history)
+
+        val exported = vm.exportSessions(setOf("first", "second"))!!
+
+        assertEquals(1, exported.lines().count { it == "# 第一段会话" })
+        assertEquals(1, exported.lines().count { it == "# 第二段会话" })
+        assertTrue(exported.indexOf("第一条内容") < exported.indexOf("第二段会话"))
+        assertTrue(vm.exportSessions(emptySet()) == null)
+    }
+
+    @Test fun searchesAllLocalMessagesAndDraftsWithoutSendingQueries() {
+        val history = MemoryHistory()
+        val provider = FakeProvider(AppResult.success("特别的答复"))
+        val vm = ChatViewModel(RecordingScope(), provider, sessionsRepository = history)
+        val first = vm.state.activeSessionId
+        vm.updateInput("旧消息提到火星")
+        vm.send()
+        vm.newSession()
+        val second = vm.state.activeSessionId
+        vm.updateInput("未发送的土星计划")
+        assertTrue(vm.searchSessionContent("火星")[first]!!.contains("火星"))
+        assertTrue(vm.searchSessionContent("答复")[first]!!.contains("答复"))
+        assertTrue(vm.searchSessionContent("土星")[second]!!.startsWith("草稿"))
+        assertTrue(vm.searchSessionContent("不存在").isEmpty())
+        assertTrue(vm.searchSessionContent(" ").isEmpty())
+        assertEquals(1, provider.received.size)
+        vm.deleteSession(first)
+        assertFalse(vm.searchSessionContent("火星").containsKey(first))
+        vm.clearAllHistory()
+        assertTrue(vm.searchSessionContent("土星").isEmpty())
+    }
+    @Test fun switchingSessionsKeepsIndependentDraftTextAndAttachments() {
+        val history = MemoryHistory()
+        val provider = FakeProvider(AppResult.success("回答"))
+        val vm = ChatViewModel(RecordingScope(), provider, sessionsRepository = history)
+        val first = vm.state.activeSessionId
+        val attachment = ChatAttachment(name = "draft.txt", mimeType = "text/plain", textContent = "正文")
+        vm.updateInput("  第一份草稿\n  ")
+        vm.addAttachments(listOf(attachment))
+        vm.newSession()
+        val second = vm.state.activeSessionId
+        assertEquals("", vm.state.inputText)
+        assertTrue(vm.state.pendingAttachments.isEmpty())
+        vm.updateInput("第二份草稿")
+        vm.selectSession(first)
+        assertEquals("  第一份草稿\n  ", vm.state.inputText)
+        assertEquals(listOf(attachment), vm.state.pendingAttachments)
+        assertEquals("第一份草稿", vm.state.draftPreviews[first])
+        vm.selectSession(second)
+        assertEquals("第二份草稿", vm.state.inputText)
+        assertTrue(provider.received.isEmpty())
+    }
+
+    @Test fun backgroundFlushAndRestartRestoreDraftWithoutSendingIt() {
+        val history = MemoryHistory()
+        val provider = FakeProvider(AppResult.success("回答"))
+        val vm = ChatViewModel(RecordingScope(), provider, sessionsRepository = history)
+        vm.updateInput("重启后保留")
+        vm.addAttachments(listOf(ChatAttachment(name = "bad.pdf", mimeType = "application/pdf", error = "未支持")))
+        vm.flushPendingChanges()
+        val restarted = ChatViewModel(RecordingScope(), provider, sessionsRepository = history)
+        assertEquals("重启后保留", restarted.state.inputText)
+        assertEquals("未支持", restarted.state.pendingAttachments.single().error)
+        assertFalse(restarted.state.canSend)
+        assertTrue(restarted.state.messages.isEmpty())
+        assertTrue(provider.received.isEmpty())
+    }
+
+    @Test fun freshLaunchKeepsPreviousDraftInDrawerAndRestoresItOnSelection() {
+        val history = MemoryHistory()
+        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("ok")), sessionsRepository = history)
+        val previous = vm.state.activeSessionId
+        vm.updateInput("旧会话的草稿")
+        vm.flushPendingChanges()
+        val fresh = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("ok")), sessionsRepository = history, startFreshSession = true)
+        assertTrue(fresh.state.activeSessionId != previous)
+        assertEquals("", fresh.state.inputText)
+        assertEquals("旧会话的草稿", fresh.state.draftPreviews[previous])
+        fresh.updateInput("新输入")
+        fresh.selectSession(previous)
+        assertEquals("旧会话的草稿", fresh.state.inputText)
+    }
+
+    @Test fun draftsSaveAfterTypingSettles() = kotlinx.coroutines.runBlocking {
+        val history = MemoryHistory()
+        val scope = CoroutineScope(coroutineContext)
+        val vm = ChatViewModel(scope, FakeProvider(AppResult.success("ok")), sessionsRepository = history)
+        kotlinx.coroutines.yield()
+        vm.updateInput("中间")
+        vm.updateInput("最终输入")
+        kotlinx.coroutines.delay(500)
+        assertEquals("最终输入", history.snapshot.sessions.single().draft.text)
+        vm.updateInput("")
+        vm.flushPendingChanges()
+        kotlinx.coroutines.yield()
+        assertTrue(history.snapshot.sessions.single().draft.isEmpty)
+        assertTrue(vm.state.draftPreviews.isEmpty())
+    }
+
+    @Test fun sendClearsOnlyCurrentDraftAndNeverIncludesOtherDraftsInRequest() {
+        val history = MemoryHistory()
+        val provider = FakeProvider(AppResult.success("回答"))
+        val vm = ChatViewModel(RecordingScope(), provider, sessionsRepository = history)
+        val first = vm.state.activeSessionId
+        vm.updateInput("保留的私密草稿")
+        vm.newSession()
+        vm.updateInput("实际发送")
+        vm.send()
+        assertEquals(listOf("实际发送"), provider.received.single().map { it.content })
+        assertEquals("", vm.state.inputText)
+        assertFalse(vm.state.draftPreviews.containsKey(vm.state.activeSessionId))
+        assertEquals("保留的私密草稿", vm.state.draftPreviews[first])
+        assertTrue(history.snapshot.sessions.first { it.session.id == vm.state.activeSessionId }.draft.isEmpty)
+    }
+
+    @Test fun failedSendDoesNotResurrectAlreadySubmittedDraft() {
+        val history = MemoryHistory()
+        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.failure(AppError.Network())), sessionsRepository = history)
+        vm.updateInput("发送失败也保留在消息里")
+        vm.send()
+        assertTrue(history.snapshot.sessions.single().draft.isEmpty)
+        assertEquals(MessageStatus.FAILED, vm.state.messages.single().status)
+        assertEquals("", vm.state.inputText)
+    }
+
+    @Test fun attachmentOnlyDraftSurvivesSwitchAndRemovalClearsPreview() {
+        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("ok")))
+        val first = vm.state.activeSessionId
+        val attachment = ChatAttachment(name = "only.txt", mimeType = "text/plain", textContent = "正文")
+        vm.addAttachments(listOf(attachment))
+        vm.newSession()
+        assertEquals("only.txt", vm.state.draftPreviews[first])
+        vm.selectSession(first)
+        assertTrue(vm.state.canSend)
+        vm.removeAttachment(attachment.id)
+        assertFalse(vm.state.draftPreviews.containsKey(first))
+    }
+
+    @Test fun deletingAndClearingHistoryRemoveDrafts() {
+        val history = MemoryHistory()
+        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("ok")), sessionsRepository = history)
+        val first = vm.state.activeSessionId
+        vm.updateInput("删除草稿")
+        vm.newSession()
+        vm.updateInput("另一个草稿")
+        assertTrue(vm.deleteSession(first))
+        assertFalse(vm.state.draftPreviews.containsKey(first))
+        assertTrue(vm.clearAllHistory())
+        assertTrue(vm.state.draftPreviews.isEmpty())
+        assertTrue(history.snapshot.sessions.single().draft.isEmpty)
+    }
 
     private class MemoryHistory(messages: List<ChatMessage> = emptyList()) : ChatSessionsRepository {
         var snapshot = ChatSessionsSnapshot(
@@ -193,6 +422,21 @@ class ChatViewModelTest {
         val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("ok")), sessionsRepository = history)
         assertFalse(vm.state.isHistoryLoading)
         assertTrue(vm.state.notice!!.contains("本地会话读取失败"))
+    }
+
+    @Test fun failedHistoryLoadNeverOverwritesStoreEvenOnFreshLaunchOrClear() {
+        val history = MemoryHistory().apply { failed = true }
+        val before = history.snapshot
+        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("ok")), sessionsRepository = history, startFreshSession = true)
+        vm.updateInput("未保存的输入")
+        vm.flushPendingChanges()
+        vm.newSession()
+        vm.send()
+        var saved: Boolean? = null
+        assertFalse(vm.clearAllHistory { saved = it })
+        assertEquals(false, saved)
+        assertEquals(before, history.snapshot)
+        assertTrue(vm.state.notice!!.contains("暂停保存"))
     }
 
     @Test
@@ -445,6 +689,19 @@ class ChatViewModelTest {
         assertEquals(listOf("first", "answer"), vm.state.messages.map { it.text })
         assertEquals(listOf(attachment), vm.state.pendingAttachments)
         assertEquals(listOf("first", "answer"), history.messages.map { it.content })
+        assertEquals("second", history.snapshot.sessions.single().draft.text)
+        assertEquals(listOf(attachment), history.snapshot.sessions.single().draft.attachments)
+    }
+
+    @Test fun editingHistoryCannotOverwriteAnExistingDraft() {
+        val history = MemoryHistory(listOf(ChatMessage(sessionId = "current", role = MessageRole.USER, content = "旧消息")))
+        val vm = ChatViewModel(RecordingScope(), FakeProvider(AppResult.success("ok")), sessionsRepository = history)
+        vm.updateInput("正在写的新草稿")
+        assertFalse(vm.editUserMessage(0))
+        assertEquals("正在写的新草稿", vm.state.inputText)
+        assertEquals("旧消息", vm.state.messages.single().text)
+        assertTrue(vm.state.notice!!.contains("草稿"))
+        vm.flushPendingChanges()
     }
 
     @Test

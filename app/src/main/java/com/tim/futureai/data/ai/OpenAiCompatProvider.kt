@@ -1,6 +1,8 @@
 package com.tim.futureai.data.ai
 
 import com.tim.futureai.core.common.AppError
+import com.tim.futureai.core.common.JsonMini
+import com.tim.futureai.core.common.JsonValue
 import com.tim.futureai.core.common.RetryAfter
 import com.tim.futureai.core.common.AppResult
 import com.tim.futureai.core.common.NetworkFailureKind
@@ -65,16 +67,17 @@ class OpenAiCompatProvider(
             try {
                 connection = (URL("${config.baseUrl.trimEnd('/')}/models").openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
-                    connectTimeout = connectTimeoutMs
-                    readTimeout = readTimeoutMs
+                    connectTimeout = config.connectTimeoutMs ?: connectTimeoutMs
+                    readTimeout = config.readTimeoutMs ?: readTimeoutMs
                     setRequestProperty("Authorization", "Bearer ${config.apiKey}")
                     setRequestProperty("Accept", "application/json")
+                    applyCustomHeaders(config)
                 }
                 val code = connection.responseCode
                 if (code in 200..299) AppResult.Success(Unit)
                 else {
                     val body = connection.errorStream?.bufferedReader()?.use { it.readText().take(1000) }.orEmpty()
-                    val message = sanitize(OpenAiWire.extractErrorMessage(sanitize(body, config.apiKey)), config.apiKey)
+                    val message = sanitize(OpenAiWire.extractErrorMessage(sanitize(body, config.apiKey, config.customHeaders.values)), config.apiKey, config.customHeaders.values)
                     AppResult.failure(mapHttpError(code, message, RetryAfter.parse(connection?.getHeaderField("Retry-After"))))
                 }
             } catch (e: SocketTimeoutException) {
@@ -86,6 +89,44 @@ class OpenAiCompatProvider(
             } finally {
                 connection?.disconnect()
             }
+        }
+    }
+
+    override suspend fun listModels(): AppResult<List<String>> {
+        val config = configProvider() ?: return AppResult.failure(AppError.Configuration("AI 服务未配置"))
+        if (!config.isConfigured() || !isValidBaseUrl(config.baseUrl)) return AppResult.failure(AppError.Configuration("AI 配置无效"))
+        return withContext(Dispatchers.IO) {
+            var connection: HttpURLConnection? = null
+            try {
+                connection = (URL("${config.baseUrl.trimEnd('/')}/models").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = config.connectTimeoutMs ?: connectTimeoutMs
+                    readTimeout = config.readTimeoutMs ?: readTimeoutMs
+                    setRequestProperty("Authorization", "Bearer ${config.apiKey}")
+                    setRequestProperty("Accept", "application/json")
+                    applyCustomHeaders(config)
+                }
+                val code = connection.responseCode
+                if (code !in 200..299) {
+                    val body = connection.errorStream?.bufferedReader()?.use { it.readText().take(1000) }.orEmpty()
+                    val message = sanitize(OpenAiWire.extractErrorMessage(body), config.apiKey, config.customHeaders.values)
+                    AppResult.failure(mapHttpError(code, message, RetryAfter.parse(connection.getHeaderField("Retry-After"))))
+                } else {
+                    val body = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    val data = JsonMini.parse(body).asObject()?.entries?.get("data")?.asArray()?.items
+                        ?: throw OpenAiWire.ResponseParseException("Missing model data array")
+                    val ids = data.mapNotNull { item -> item.asObject()?.entries?.get("id")?.asString() }
+                        .map(String::trim).filter(String::isNotBlank).distinct().take(300)
+                    if (ids.isEmpty()) AppResult.failure(AppError.Parse("Provider returned no model IDs"))
+                    else AppResult.Success(ids)
+                }
+            } catch (e: SocketTimeoutException) {
+                AppResult.failure(AppError.Network("Model list request timed out", e, NetworkFailureKind.TIMEOUT))
+            } catch (e: IOException) {
+                AppResult.failure(AppError.Network(sanitize(e.message.orEmpty(), config.apiKey, config.customHeaders.values), e, NetworkFailureKind.CONNECTION))
+            } catch (e: Exception) {
+                AppResult.failure(AppError.Parse(sanitize(e.message ?: "Could not read model list", config.apiKey, config.customHeaders.values), e))
+            } finally { connection?.disconnect() }
         }
     }
 
@@ -134,16 +175,17 @@ class OpenAiCompatProvider(
             val url = URL("${config.baseUrl.trimEnd('/')}/chat/completions")
             (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
-                connectTimeout = connectTimeoutMs
-                readTimeout = readTimeoutMs
+                connectTimeout = config.connectTimeoutMs ?: connectTimeoutMs
+                readTimeout = config.readTimeoutMs ?: readTimeoutMs
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
                 if (streaming) setRequestProperty("Accept", "text/event-stream")
                 setRequestProperty("Authorization", "Bearer ${config.apiKey}")
+                applyCustomHeaders(config)
             }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
-            return AppResult.failure(sanitizeError(e.toAppError(), config.apiKey))
+            return AppResult.failure(sanitizeError(e.toAppError(), config))
         }
         connection.set(conn)
         if (!isActive()) {
@@ -152,7 +194,11 @@ class OpenAiCompatProvider(
         }
 
         try {
-            val body = OpenAiWire.buildRequestBody(messages, config.model, stream = streaming)
+            val body = OpenAiWire.buildRequestBody(
+                messages, config.model, stream = streaming,
+                temperature = config.temperature, maxOutputTokens = config.maxOutputTokens,
+                systemInstruction = config.systemInstruction,
+            )
             conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
 
             val code = conn.responseCode
@@ -184,8 +230,8 @@ class OpenAiCompatProvider(
             }
             // 非 2xx：读错误流并映射
             val errorBody = conn.errorStream?.bufferedReader()?.readText().orEmpty()
-            val safeBody = sanitize(errorBody, config.apiKey)
-            val message = sanitize(safeBody.let(OpenAiWire::extractErrorMessage), config.apiKey)
+            val safeBody = sanitize(errorBody, config.apiKey, config.customHeaders.values)
+            val message = sanitize(safeBody.let(OpenAiWire::extractErrorMessage), config.apiKey, config.customHeaders.values)
             return AppResult.failure(mapHttpError(code, message, RetryAfter.parse(conn.getHeaderField("Retry-After"))))
         } catch (e: CancellationException) {
             throw e
@@ -194,36 +240,41 @@ class OpenAiCompatProvider(
         } catch (e: SocketTimeoutException) {
             return AppResult.failure(AppError.Network("Request timed out", e, NetworkFailureKind.TIMEOUT))
         } catch (e: IOException) {
-            return AppResult.failure(AppError.Network(sanitize(e.message.orEmpty(), config.apiKey), e, NetworkFailureKind.CONNECTION))
+            return AppResult.failure(AppError.Network(sanitize(e.message.orEmpty(), config.apiKey, config.customHeaders.values), e, NetworkFailureKind.CONNECTION))
         } catch (e: TimeoutException) {
             return AppResult.failure(AppError.Network("Request timed out", e, NetworkFailureKind.TIMEOUT))
         } catch (e: Exception) {
-            return AppResult.failure(AppError.Unknown(sanitize(e.message ?: "Unexpected error", config.apiKey), e))
+            return AppResult.failure(AppError.Unknown(sanitize(e.message ?: "Unexpected error", config.apiKey, config.customHeaders.values), e))
         } finally {
             conn.disconnect()
             connection.compareAndSet(conn, null)
         }
     }
 
-    private fun sanitizeError(error: AppError, apiKey: String): AppError = when (error) {
-        is AppError.Network -> error.copy(message = sanitize(error.message.orEmpty(), apiKey))
-        is AppError.Configuration -> error.copy(message = sanitize(error.message, apiKey))
-        is AppError.ModelUnavailable -> error.copy(message = sanitize(error.message, apiKey))
-        is AppError.Http -> error.copy(message = sanitize(error.message, apiKey))
-        is AppError.Auth -> error.copy(message = sanitize(error.message.orEmpty(), apiKey))
-        is AppError.RateLimited -> error.copy(message = sanitize(error.message.orEmpty(), apiKey))
-        is AppError.Server -> error.copy(message = sanitize(error.message.orEmpty(), apiKey))
-        is AppError.Parse -> error.copy(message = sanitize(error.message.orEmpty(), apiKey))
-        is AppError.Unknown -> error.copy(message = sanitize(error.message.orEmpty(), apiKey))
+    private fun sanitizeError(error: AppError, config: AiChatConfig): AppError = when (error) {
+        is AppError.Network -> error.copy(message = sanitize(error.message.orEmpty(), config.apiKey, config.customHeaders.values))
+        is AppError.Configuration -> error.copy(message = sanitize(error.message, config.apiKey, config.customHeaders.values))
+        is AppError.ModelUnavailable -> error.copy(message = sanitize(error.message, config.apiKey, config.customHeaders.values))
+        is AppError.Http -> error.copy(message = sanitize(error.message, config.apiKey, config.customHeaders.values))
+        is AppError.Auth -> error.copy(message = sanitize(error.message.orEmpty(), config.apiKey, config.customHeaders.values))
+        is AppError.RateLimited -> error.copy(message = sanitize(error.message.orEmpty(), config.apiKey, config.customHeaders.values))
+        is AppError.Server -> error.copy(message = sanitize(error.message.orEmpty(), config.apiKey, config.customHeaders.values))
+        is AppError.Parse -> error.copy(message = sanitize(error.message.orEmpty(), config.apiKey, config.customHeaders.values))
+        is AppError.Unknown -> error.copy(message = sanitize(error.message.orEmpty(), config.apiKey, config.customHeaders.values))
         AppError.Cancelled -> error
     }
 
-    private fun sanitize(message: String, apiKey: String): String {
+    private fun sanitize(message: String, apiKey: String, customSecrets: Collection<String> = emptyList()): String {
         val noAuthorization = message.replace(
             Regex("(?i)authorization\\s*:\\s*bearer\\s+[^\\s,;]+"),
             "[redacted credentials]",
         ).replace(Regex("(?i)bearer\\s+[A-Za-z0-9._~+/-]+=*"), "Bearer [redacted]")
-        return if (apiKey.isBlank()) noAuthorization else noAuthorization.replace(apiKey, "[redacted]")
+        val safe = if (apiKey.isBlank()) noAuthorization else noAuthorization.replace(apiKey, "[redacted]")
+        return customSecrets.filter(String::isNotBlank).fold(safe) { current, secret -> current.replace(secret, "[redacted]") }
+    }
+
+    private fun HttpURLConnection.applyCustomHeaders(config: AiChatConfig) {
+        config.customHeaders.forEach { (name, value) -> setRequestProperty(name, value) }
     }
 
     private fun isValidBaseUrl(baseUrl: String): Boolean = runCatching {

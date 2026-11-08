@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.FutureAI" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowSplashScreenBackground">#212121</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_monochrome</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>

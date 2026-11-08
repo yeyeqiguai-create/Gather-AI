@@ -15,17 +15,28 @@ import java.io.File
 object OpenAiWire {
 
     /** 构造 POST /chat/completions 请求体。 */
-    fun buildRequestBody(messages: List<ChatMessage>, model: String, stream: Boolean = false): String {
+    fun buildRequestBody(
+        messages: List<ChatMessage>, model: String, stream: Boolean = false,
+        temperature: Double? = null, maxOutputTokens: Int? = null, systemInstruction: String = "",
+    ): String {
         val sb = StringBuilder()
         sb.append("{\"model\":").append(JsonMini.quote(model))
         if (stream) sb.append(",\"stream\":true")
+        temperature?.let { sb.append(",\"temperature\":").append(it) }
+        maxOutputTokens?.let { sb.append(",\"max_tokens\":").append(it) }
         sb.append(",\"messages\":[")
+        var needsComma = false
+        if (systemInstruction.isNotBlank()) {
+            sb.append("{\"role\":\"system\",\"content\":").append(JsonMini.quote(systemInstruction)).append('}')
+            needsComma = true
+        }
         messages.forEachIndexed { i, m ->
-            if (i > 0) sb.append(',')
+            if (i > 0 || needsComma) sb.append(',')
             sb.append("{\"role\":").append(JsonMini.quote(m.role.name.lowercase()))
                 .append(",\"content\":")
             if (m.attachments.isEmpty()) sb.append(JsonMini.quote(m.content)) else appendAttachmentContent(sb, m.content, m.attachments)
             sb.append('}')
+            needsComma = true
         }
         sb.append("]}")
         return sb.toString()

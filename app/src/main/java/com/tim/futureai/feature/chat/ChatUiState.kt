@@ -25,6 +25,7 @@ data class ChatUiState(
     val nextMessageModelId: String? = null,
     val activeModelExplanation: String? = null,
     val pendingAttachments: List<ChatAttachment> = emptyList(),
+    val draftPreviews: Map<String, String> = emptyMap(),
 ) {
     /** 当前文本或所有附件均有效且符合模型能力时可发送。 */
     val canSend: Boolean get() {

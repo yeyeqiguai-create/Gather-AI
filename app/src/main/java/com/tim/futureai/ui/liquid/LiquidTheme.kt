@@ -99,5 +99,5 @@ data class GlassRenderPrefs(
     val reduceMotion: Boolean = false,
 )
 
-val LocalLiquidSpec = staticCompositionLocalOf { LiquidIndigoSpec }
-val LocalGlassPrefs = staticCompositionLocalOf { GlassRenderPrefs() }
+val LocalLiquidSpec = staticCompositionLocalOf { MonochromeBlackSpec }
+val LocalGlassPrefs = staticCompositionLocalOf { GlassRenderPrefs(intensity = 0.18f) }

@@ -1,5 +1,12 @@
 package com.tim.futureai.feature.settings
 
+import com.tim.futureai.ui.liquid.gatherPageTransition
+import com.tim.futureai.ui.liquid.glassSurface
+import com.tim.futureai.ui.liquid.GlassMaterial
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
@@ -9,6 +16,9 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,10 +33,14 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.tim.futureai.ui.theme.ContinuousCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.IconButton
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Slider
@@ -45,6 +59,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -52,6 +69,7 @@ import androidx.compose.ui.unit.sp
 import com.tim.futureai.domain.ai.AiSettings
 import com.tim.futureai.domain.ai.CapabilityEvidence
 import com.tim.futureai.domain.settings.AppPreferences
+import com.tim.futureai.domain.settings.AccentColor
 import com.tim.futureai.domain.settings.RoutingMode
 import com.tim.futureai.domain.settings.SettingsSection
 import com.tim.futureai.domain.settings.SettingsSearchEntry
@@ -118,16 +136,10 @@ fun FullSettingsCenter(
     BackHandler(enabled = section != SettingsSection.GENERAL) { section = SettingsSection.GENERAL }
     var query by rememberSaveable { mutableStateOf("") }
     var confirmation by remember { mutableStateOf<SettingsSection?>(null) }
-    var showPrototype by rememberSaveable { mutableStateOf(false) }
     val stateHolder = rememberSaveableStateHolder()
     val transitionMillis = if (preferences.animationsEnabled && animationsEnabledBySystem) 160 else 0
 
-    if (showPrototype) {
-        LiquidPrototypeScreen(onBack = { showPrototype = false })
-        return
-    }
-
-    AnimatedContent(section, transitionSpec = { fadeIn(tween(transitionMillis)) togetherWith fadeOut(tween(transitionMillis)) }, label = "settings-category") { target ->
+    AnimatedContent(section, transitionSpec = { gatherPageTransition(targetState != SettingsSection.GENERAL, transitionMillis == 0) }, label = "settings-category") { target ->
             stateHolder.SaveableStateProvider(target.name) {
                 if (target == SettingsSection.PROVIDERS) {
                     providerContent { section = SettingsSection.GENERAL }
@@ -148,7 +160,7 @@ fun FullSettingsCenter(
                             onQuery = { query = it }, onOpen = { section = it }, onCopyVersion = onCopyVersion,
                             onReset = { confirmation = SettingsSection.GENERAL }, providerCount = providerCount, profiles = profiles,
                         )
-                        SettingsSection.APPEARANCE -> AppearancePage(preferences, onPreferencesChanged, onOpenPrototype = { showPrototype = true })
+                        SettingsSection.APPEARANCE -> AppearancePage(preferences, onPreferencesChanged)
                         SettingsSection.CHAT -> ChatPage(preferences, onPreferencesChanged, sessionCount,
                             onClearHistory = { confirmation = SettingsSection.CHAT })
                         SettingsSection.MODEL_ROUTING -> RoutingPage(preferences, onPreferencesChanged, profiles)
@@ -206,63 +218,49 @@ fun FullSettingsCenter(
 
 @Composable
 private fun SettingsPageFrame(title: String, onBack: () -> Unit, content: @Composable () -> Unit) {
-    LiquidStage(
-        overlay = {
-            Row(
-                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.size(42.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onBack), contentAlignment = Alignment.Center) {
-                    FutureGlyph("back", tint = FuturePalette.Text, size = 19.dp)
-                }
-                Column(Modifier.weight(1f).padding(start = 13.dp)) {
-                    Text(title, color = FuturePalette.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Gather AI · Liquid Reality", color = FuturePalette.Muted, fontSize = 10.sp)
-                }
+    val density = LocalDensity.current
+    var header by remember { mutableStateOf(88.dp) }
+    LiquidStage(source = {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).navigationBarsPadding()
+            .padding(start = 20.dp, end = 20.dp, top = header + 12.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { content() }
+    }, overlay = {
+        Column(Modifier.fillMaxWidth().onSizeChanged { header = with(density) { it.height.toDp() } }
+            .glassSurface(GlassMaterial.FROSTED, RectangleShape).statusBarsPadding()) {
+            Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) { FutureGlyph("back", size = 22.dp) }
+                Text(title, color = FuturePalette.Text, fontSize = 21.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 8.dp))
             }
-        },
-        source = {
-            Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 18.dp, end = 18.dp, top = 104.dp, bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                content()
-                Spacer(Modifier.height(10.dp))
-            }
-        },
-    )
+        }
+    })
 }
 
 @Composable
 private fun GeneralPage(
     version: String, code: Int, build: String, defaultModel: String, update: String, query: String,
     onQuery: (String) -> Unit, onOpen: (SettingsSection) -> Unit, onCopyVersion: () -> Unit,
-    onReset: () -> Unit, providerCount: Int,
-    profiles: List<AiSettings>,
+    onReset: () -> Unit, providerCount: Int, profiles: List<AiSettings>,
 ) {
-    Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(16.dp)).padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text("$version · v$code · $build", color = FuturePalette.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text("默认模型：$defaultModel", color = FuturePalette.Cyan, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("更新：$update · 服务商 $providerCount", color = FuturePalette.Muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            Text("复制版本信息", color = FuturePalette.VioletBright, fontSize = 10.sp, modifier = Modifier.clickable(onClick = onCopyVersion).padding(horizontal = 8.dp, vertical = 4.dp))
-            Text("检查更新", color = FuturePalette.VioletBright, fontSize = 10.sp, modifier = Modifier.clickable { onOpen(SettingsSection.UPDATES) }.padding(horizontal = 8.dp, vertical = 4.dp))
-        }
-    }
+    Text("让工具，回归简单。", color = FuturePalette.Text, fontSize = 25.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 8.dp))
     SearchField(query, onQuery)
-    val searchableProviders = profiles.map { profile ->
-        profile.name to (listOf(profile.model) + profile.availableModels.lines().map(String::trim).filter(String::isNotBlank))
-    }
+    val searchableProviders = profiles.map { it.name to (listOf(it.model) + it.availableModels.lines()) }
     val results = remember(query, profiles) { SettingsSearchRegistry.search(query, searchableProviders) }
     if (query.isNotBlank()) {
-        if (results.isEmpty()) Text("没有匹配的设置项", color = FuturePalette.Muted, modifier = Modifier.padding(10.dp))
-        results.forEach { SearchResultCard(it, onClick = { onOpen(it.section) }) }
+        if (results.isEmpty()) Text("没有匹配的设置项", color = FuturePalette.Muted, modifier = Modifier.padding(12.dp))
+        results.forEach { SearchResultCard(it) { onOpen(it.section) } }
     } else {
-        SettingsSection.registered.forEach { SectionCard(it, onClick = { onOpen(it) }) }
+        listOf(
+            "个人偏好" to listOf(SettingsSection.APPEARANCE, SettingsSection.CHAT, SettingsSection.VOICE),
+            "模型与工作" to listOf(SettingsSection.PROVIDERS, SettingsSection.MODEL_ROUTING, SettingsSection.TASKS, SettingsSection.USAGE, SettingsSection.ARENA),
+            "数据与隐私" to listOf(SettingsSection.ATTACHMENTS, SettingsSection.STORAGE, SettingsSection.SECURITY),
+            "应用" to listOf(SettingsSection.UPDATES, SettingsSection.HEALTH, SettingsSection.AUDIT, SettingsSection.DIAGNOSTICS),
+        ).forEach { (label, sections) ->
+            Text(label, color = FuturePalette.Muted, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp, top = 16.dp, bottom = 4.dp))
+            Column(Modifier.fillMaxWidth().glassPanel(ContinuousCornerShape(18.dp))) { sections.forEach { SectionCard(it) { onOpen(it) } } }
+        }
     }
-    InfoCard("默认启动行为", "启动后进入最近的聊天界面；更新检查由“更新管理”中的开关控制。")
-    InfoCard("语言", "当前界面使用简体中文；应用未附带其他完整语言资源，因此不提供无效切换项。")
-    ActionButton("重置应用偏好", danger = true, onClick = onReset)
+    Text("Gather AI · $version", color = FuturePalette.Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 16.dp).clickable(onClick = onCopyVersion))
+    Text("$providerCount 个服务商 · 默认模型 $defaultModel", color = FuturePalette.Muted, fontSize = 11.sp, maxLines = 2)
+    TextButton(onClick = onReset) { Text("重置应用偏好", color = FuturePalette.Muted, fontSize = 12.sp) }
 }
 
 @Composable
@@ -311,7 +309,7 @@ private fun TaskEngineSettingsPage(
 
 @Composable
 private fun SettingSlider(title: String, value: Float, range: ClosedFloatingPointRange<Float>, label: String, onChange: (Float) -> Unit) {
-    Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    Column(Modifier.fillMaxWidth().glassPanel(ContinuousCornerShape(18.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(title, color = FuturePalette.Text, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
             Text(label, color = FuturePalette.Cyan, fontSize = 11.sp)
@@ -322,7 +320,7 @@ private fun SettingSlider(title: String, value: Float, range: ClosedFloatingPoin
 
 @Composable
 private fun SearchField(query: String, onChange: (String) -> Unit) {
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).background(FuturePalette.Panel).padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().clip(ContinuousCornerShape(15.dp)).background(FuturePalette.Panel).padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         FutureGlyph("search", tint = FuturePalette.Muted, size = 18.dp)
         Spacer(Modifier.width(9.dp))
         BasicTextField(value = query, onValueChange = onChange, singleLine = true, modifier = Modifier.weight(1f), textStyle = androidx.compose.ui.text.TextStyle(color = FuturePalette.Text, fontSize = 14.sp), decorationBox = { inner ->
@@ -335,21 +333,19 @@ private fun SearchField(query: String, onChange: (String) -> Unit) {
 
 @Composable
 private fun SectionCard(section: SettingsSection, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(16.dp)).clickable(onClick = onClick).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(34.dp).clip(CircleShape).background(FuturePalette.Violet.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
-            FutureGlyph(glyphFor(section), tint = FuturePalette.VioletBright, size = 17.dp)
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        FutureGlyph(glyphFor(section), tint = FuturePalette.Text, size = 21.dp)
+        Column(Modifier.weight(1f).padding(start = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(section.title, color = FuturePalette.Text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            Text(section.description, color = FuturePalette.Muted, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
-        Column(Modifier.weight(1f).padding(start = 11.dp)) {
-            Text(section.title, color = FuturePalette.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-            Text(section.description, color = FuturePalette.Muted, fontSize = 10.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
-        Text("›", color = FuturePalette.Cyan, fontSize = 22.sp)
+        Text("›", color = FuturePalette.Muted, fontSize = 21.sp)
     }
 }
 
 @Composable
 private fun SearchResultCard(entry: SettingsSearchEntry, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(16.dp)).clickable(onClick = onClick).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().glassPanel(ContinuousCornerShape(16.dp)).clickable(onClick = onClick).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(entry.title, color = FuturePalette.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
             Text(entry.section.title, color = FuturePalette.Cyan, fontSize = 10.sp)
@@ -359,36 +355,39 @@ private fun SearchResultCard(entry: SettingsSearchEntry, onClick: () -> Unit) {
 }
 
 @Composable
-private fun AppearancePage(p: AppPreferences, change: (AppPreferences) -> Unit, onOpenPrototype: () -> Unit) {
-    InfoCard("外观预览", "主题、材质和动效设置立即应用并加密持久化；所有页面共享同一套 Liquid 设计令牌。")
-    ThemePicker(p.visualTheme) { change(p.copy(visualTheme = it)) }
-    Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("玻璃材质强度", color = FuturePalette.Text, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-            Text("${(p.glassIntensity * 100).toInt()}%", color = FuturePalette.Cyan, fontSize = 11.sp)
-        }
+private fun AppearancePage(p: AppPreferences, change: (AppPreferences) -> Unit) {
+    Text("你的界面，你的节奏。", color = FuturePalette.Text, fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
+    Text("以黑白为基础，也可以选择低饱和主题与强调色。", color = FuturePalette.Muted, fontSize = 13.sp, lineHeight = 21.sp)
+    PreferenceSwitch("跟随系统外观", "随系统切换纯白与石墨；关闭后恢复手动主题", p.followSystemTheme) {
+        change(p.copy(followSystemTheme = it))
+    }
+    ThemePicker(p.effectiveVisualTheme(isSystemInDarkTheme()), p.accentColor) { change(p.selectVisualTheme(it)) }
+    if (p.followSystemTheme) {
+        Text("选择基底会切换为手动主题。", color = FuturePalette.Muted, fontSize = 12.sp)
+    }
+    AccentPicker(p.accentColor) { change(p.copy(accentColor = it)) }
+    Column(Modifier.fillMaxWidth().glassPanel(ContinuousCornerShape(18.dp)).padding(16.dp)) {
+        Text("玻璃质感 · ${(p.glassIntensity * 100).toInt()}%", color = FuturePalette.Text, fontSize = 15.sp)
         Slider(value = p.glassIntensity, onValueChange = { change(p.copy(glassIntensity = it)) }, valueRange = 0f..1f)
-        Text("控制模糊半径与边缘高光；0% 时玻璃退化为不透明的纯净表面。", color = FuturePalette.Muted, fontSize = 10.sp, lineHeight = 15.sp)
+        Text("顶栏与输入框透出背景层次。调至 0 可关闭模糊。", color = FuturePalette.Muted, fontSize = 12.sp, lineHeight = 19.sp)
     }
-    PreferenceSwitch("低性能模式", "停用实时模糊与折射，保留完整主题配色；卡顿设备或省电时使用。", p.lowPerformanceMode) { change(p.copy(lowPerformanceMode = it)) }
-    PreferenceSwitch("动态背景", "极光等主题的光斑将缓慢漂移；关闭后为静态渲染。", p.dynamicBackground) { change(p.copy(dynamicBackground = it)) }
-    PreferenceSwitch("紧凑聊天间距", "减少消息列表纵向留白", p.compactChat) { change(p.copy(compactChat = it)) }
-    PreferenceSwitch("界面过渡动画", "遵循系统关闭动画设置", p.animationsEnabled) { change(p.copy(animationsEnabled = it)) }
-    Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).padding(14.dp)) {
-        Text("字体大小 · ${(p.fontScale * 100).toInt()}%", color = FuturePalette.Text, fontSize = 13.sp)
+    PreferenceSwitch("轻量渲染", "关闭背景模糊与折射，保留清晰的界面层次", p.lowPerformanceMode) { change(p.copy(lowPerformanceMode = it)) }
+    PreferenceSwitch("紧凑聊天间距", "减少消息之间的留白", p.compactChat) { change(p.copy(compactChat = it)) }
+    PreferenceSwitch("界面过渡动画", "尊重系统的减少动态效果设置", p.animationsEnabled) { change(p.copy(animationsEnabled = it)) }
+    Column(Modifier.fillMaxWidth().glassPanel(ContinuousCornerShape(18.dp)).padding(16.dp)) {
+        Text("字体大小 · ${(p.fontScale * 100).toInt()}%", color = FuturePalette.Text, fontSize = 15.sp)
         Slider(value = p.fontScale, onValueChange = { change(p.copy(fontScale = it)) }, valueRange = 0.85f..1.25f)
-        Text("控件触控区域保持不变；超长文本仍可滚动。", color = FuturePalette.Muted, fontSize = 10.sp)
+        Text("同时遵循系统字体大小。", color = FuturePalette.Muted, fontSize = 12.sp)
     }
-    ActionButton("液态玻璃原型 · 材质验收", onClick = onOpenPrototype)
 }
 
 @Composable
-private fun ThemePicker(selected: VisualTheme, onSelect: (VisualTheme) -> Unit) {
-    Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("主题", color = FuturePalette.Text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-        VisualTheme.entries.chunked(2).forEach { row ->
+private fun ThemePicker(selected: VisualTheme, accentColor: AccentColor, onSelect: (VisualTheme) -> Unit) {
+    Column(Modifier.fillMaxWidth().glassPanel(ContinuousCornerShape(18.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("基底", color = FuturePalette.Text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        VisualTheme.selectable.chunked(2).forEach { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                row.forEach { theme -> ThemePreviewCard(theme, theme == selected, Modifier.weight(1f)) { onSelect(theme) } }
+                row.forEach { theme -> ThemePreviewCard(theme, accentColor, theme == selected, Modifier.weight(1f)) { onSelect(theme) } }
                 if (row.size == 1) Spacer(Modifier.weight(1f))
             }
         }
@@ -396,29 +395,50 @@ private fun ThemePicker(selected: VisualTheme, onSelect: (VisualTheme) -> Unit) 
 }
 
 @Composable
-private fun ThemePreviewCard(theme: VisualTheme, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val spec = theme.spec()
+private fun AccentPicker(selected: AccentColor, onSelect: (AccentColor) -> Unit) {
+    Column(Modifier.fillMaxWidth().glassPanel(ContinuousCornerShape(18.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("强调色 · ${selected.label}", color = FuturePalette.Text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            AccentColor.entries.forEach { accent ->
+                val color = Color(accent.primaryHex)
+                val selectedAccent = accent == selected
+                Box(
+                    Modifier.size(34.dp).clip(CircleShape).background(color)
+                        .border(if (selectedAccent) 2.dp else 1.dp, if (selectedAccent) FuturePalette.Text else FuturePalette.Edge, CircleShape)
+                        .semantics { contentDescription = "${accent.label}强调色" }
+                        .selectable(selected = selectedAccent, role = Role.RadioButton) { onSelect(accent) },
+                    contentAlignment = Alignment.Center,
+                ) { if (selectedAccent) Text("✓", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
+            }
+        }
+        Text("强调色只用于按钮、选中态和重点图标。", color = FuturePalette.Muted, fontSize = 10.sp)
+    }
+}
+
+@Composable
+private fun ThemePreviewCard(theme: VisualTheme, accentColor: AccentColor, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val spec = theme.spec(accentColor)
     Column(
         modifier
-            .clip(RoundedCornerShape(16.dp))
+            .clip(ContinuousCornerShape(16.dp))
             .background(Brush.verticalGradient(listOf(spec.ambientTop, spec.ambientMiddle, spec.ambientBottom)))
             .border(
                 width = if (selected) 2.dp else 1.dp,
                 brush = Brush.linearGradient(listOf(if (selected) spec.accentBright else spec.surfaceEdge, spec.surfaceEdge)),
-                shape = RoundedCornerShape(16.dp),
+                shape = ContinuousCornerShape(16.dp),
             )
-            .clickable(onClick = onClick)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            Box(Modifier.size(22.dp).clip(RoundedCornerShape(7.dp)).background(spec.accent.copy(alpha = 0.85f)))
-            Box(Modifier.size(22.dp).clip(RoundedCornerShape(7.dp)).background(spec.cyan.copy(alpha = 0.7f)))
-            Box(Modifier.size(22.dp).clip(RoundedCornerShape(7.dp)).background(spec.surfaceTint.copy(alpha = 0.95f)).border(1.dp, spec.surfaceEdge, RoundedCornerShape(7.dp)))
+            Box(Modifier.size(22.dp).clip(ContinuousCornerShape(7.dp)).background(spec.accent.copy(alpha = 0.85f)))
+            Box(Modifier.size(22.dp).clip(ContinuousCornerShape(7.dp)).background(spec.cyan.copy(alpha = 0.7f)))
+            Box(Modifier.size(22.dp).clip(ContinuousCornerShape(7.dp)).background(spec.surfaceTint.copy(alpha = 0.95f)).border(1.dp, spec.surfaceEdge, ContinuousCornerShape(7.dp)))
         }
         Column {
             Text(spec.label, color = spec.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            Text(spec.description, color = spec.muted, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(spec.description, color = spec.muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -527,21 +547,26 @@ private fun DiagnosticsPage(version: String, code: Int, build: String, providers
 
 @Composable
 private fun PreferenceSwitch(title: String, detail: String, value: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier.fillMaxWidth().glassPanel(ContinuousCornerShape(18.dp))
+            .toggleable(value = value, role = Role.Switch, onValueChange = onChange)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Column(Modifier.weight(1f).padding(end = 8.dp)) {
             Text(title, color = FuturePalette.Text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            Text(detail, color = FuturePalette.Muted, fontSize = 10.sp, lineHeight = 15.sp)
+            Text(detail, color = FuturePalette.Muted, fontSize = 12.sp, lineHeight = 19.sp)
         }
-        Switch(checked = value, onCheckedChange = onChange)
+        Switch(checked = value, onCheckedChange = null)
     }
 }
 
 @Composable
 private fun <T> SettingChoice(title: String, options: List<Pair<String, T>>, selected: T, onSelect: (T) -> Unit) {
-    Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(18.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(Modifier.fillMaxWidth().glassPanel(ContinuousCornerShape(18.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(title, color = FuturePalette.Text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
         options.forEach { (label, value) ->
-            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onSelect(value) }.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().clip(ContinuousCornerShape(10.dp)).clickable { onSelect(value) }.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = selected == value, onCheckedChange = { if (it) onSelect(value) })
                 Text(label, color = if (selected == value) FuturePalette.Cyan else FuturePalette.Muted, fontSize = 12.sp)
             }
@@ -551,16 +576,16 @@ private fun <T> SettingChoice(title: String, options: List<Pair<String, T>>, sel
 
 @Composable
 private fun InfoCard(title: String, detail: String) {
-    Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(17.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+    Column(Modifier.fillMaxWidth().glassPanel(ContinuousCornerShape(17.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Text(title, color = FuturePalette.Text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-        Text(detail, color = FuturePalette.Muted, fontSize = 10.sp, lineHeight = 15.sp)
+        Text(detail, color = FuturePalette.Muted, fontSize = 12.sp, lineHeight = 19.sp)
     }
 }
 
 @Composable
 private fun ActionButton(label: String, danger: Boolean = false, onClick: () -> Unit) {
-    Button(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(15.dp)) {
-        Text(label, color = if (danger) Color(0xFFFFDDE3) else Color.White)
+    Button(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = ContinuousCornerShape(15.dp)) {
+        Text(label, color = MaterialTheme.colorScheme.onPrimary)
     }
 }
 

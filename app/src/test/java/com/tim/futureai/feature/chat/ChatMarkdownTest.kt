@@ -5,6 +5,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatMarkdownTest {
+    @Test fun tablesPreserveAlignmentEscapesAndMissingCells() {
+        val table = parseChatMarkdown("前言\n\n| 项目 | 结果 |\n| :--- | ---: |\n| A\\|B | `x|y` |\n| 缺项 |\n\n结尾")[1] as MarkdownBlock.Table
+        assertEquals(listOf("项目", "结果"), table.headers)
+        assertEquals(listOf(MarkdownAlignment.START, MarkdownAlignment.END), table.alignment)
+        assertEquals(listOf("A|B", "`x|y`"), table.rows[0])
+        assertEquals(listOf("缺项", ""), table.rows[1])
+    }
+    @Test fun partialStreamingTableRemainsReadableUntilItsSeparatorIsComplete() {
+        assertTrue(parseChatMarkdown("| 项目 | 结果 |\n| --").single() is MarkdownBlock.Paragraph)
+        val code = parseChatMarkdown("```python\nprint('ok')").single() as MarkdownBlock.Code
+        assertEquals("python", code.language)
+        assertEquals("print('ok')", code.source)
+    }
     @Test
     fun parsesBasicMarkdownBlocksAndLeavesInlineTextReadable() {
         val result = parseChatMarkdown("""# 标题

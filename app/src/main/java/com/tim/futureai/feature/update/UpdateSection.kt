@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.tim.futureai.ui.theme.ContinuousCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
@@ -45,7 +45,7 @@ fun UpdateSection(
     onViewNotes: () -> Unit = {},
 ) {
     val controls = UpdateSectionControls.forState(result, checking, downloadProgress)
-    Column(Modifier.fillMaxWidth().animateContentSize().glassPanel(RoundedCornerShape(22.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.fillMaxWidth().animateContentSize().glassPanel(ContinuousCornerShape(22.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("应用更新", color = FuturePalette.Text, fontSize = 15.sp)
         Text("当前版本：${androidx.compose.ui.platform.LocalContext.current.packageManager.getPackageInfo(androidx.compose.ui.platform.LocalContext.current.packageName, 0).versionName ?: "未知"}", color = FuturePalette.Muted, fontSize = 11.sp)
         AnimatedContent(targetState = result, label = "update-status-transition") { state -> when (state) {
@@ -68,10 +68,10 @@ fun UpdateSection(
         }
         if (message != null) Text(message, color = if (message.contains("失败") || message.contains("不兼容")) FuturePalette.Danger else FuturePalette.Muted, fontSize = 11.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onCheck, enabled = controls.checkEnabled, shape = RoundedCornerShape(14.dp)) { Text(if (checking) "检查中…" else "检查更新", fontSize = 12.sp) }
-            if (controls.downloadEnabled) Button(onClick = onDownload, shape = RoundedCornerShape(14.dp)) { Text("下载并校验 APK", fontSize = 12.sp) }
-            if (controls.cancelEnabled) Button(onClick = onCancel, shape = RoundedCornerShape(14.dp)) { Text("取消", fontSize = 12.sp) }
-            if (controls.installEnabled) Button(onClick = onInstall, shape = RoundedCornerShape(14.dp)) { Text(installButtonText, fontSize = 12.sp) }
+            Button(onClick = onCheck, enabled = controls.checkEnabled, shape = ContinuousCornerShape(14.dp)) { Text(if (checking) "检查中…" else "检查更新", fontSize = 12.sp) }
+            if (controls.downloadEnabled) Button(onClick = onDownload, shape = ContinuousCornerShape(14.dp)) { Text("下载并校验 APK", fontSize = 12.sp) }
+            if (controls.cancelEnabled) Button(onClick = onCancel, shape = ContinuousCornerShape(14.dp)) { Text("取消", fontSize = 12.sp) }
+            if (controls.installEnabled) Button(onClick = onInstall, shape = ContinuousCornerShape(14.dp)) { Text(installButtonText, fontSize = 12.sp) }
         }
     }
 }

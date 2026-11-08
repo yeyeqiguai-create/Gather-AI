@@ -1,5 +1,16 @@
 package com.tim.futureai.feature.proactive
 
+import com.tim.futureai.ui.liquid.GlassMaterial
+import com.tim.futureai.ui.liquid.glassSurface
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -16,7 +27,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.tim.futureai.ui.theme.ContinuousCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -47,11 +58,15 @@ fun NotificationCenterScreen(
     modifier: Modifier = Modifier,
 ) {
     val spec = LocalLiquidSpec.current
+    val frameDensity = LocalDensity.current
+    var frameHeader by remember { mutableStateOf(88.dp) }
     LiquidStage(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize().imePadding(),
         overlay = {
             Row(
-                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 12.dp),
+                Modifier.fillMaxWidth()
+                    .onSizeChanged { frameHeader = with(frameDensity) { it.height.toDp() } }
+                    .glassSurface(GlassMaterial.FROSTED, RectangleShape).statusBarsPadding().padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(Modifier.size(42.dp).clip(CircleShape).softSurface(CircleShape).clickable(onClick = onBack), contentAlignment = Alignment.Center) {
@@ -65,14 +80,14 @@ fun NotificationCenterScreen(
         },
         source = {
             LazyColumn(
-                Modifier.fillMaxSize().padding(start = 18.dp, end = 18.dp, top = 104.dp, bottom = 24.dp),
+                Modifier.fillMaxSize().padding(start = 18.dp, end = 18.dp, top = frameHeader + 12.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 if (!notificationsEnabled) {
                     item {
                         Text(
                             "通知权限未授予：系统通知已停用，事件仅在此中心显示；授予权限后新事件会自动恢复通知。",
-                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                            modifier = Modifier.fillMaxWidth().clip(ContinuousCornerShape(12.dp))
                                 .background(spec.warning.copy(alpha = 0.14f)).padding(11.dp),
                             color = spec.warning, fontSize = 11.sp, lineHeight = 15.sp,
                         )
@@ -83,7 +98,7 @@ fun NotificationCenterScreen(
                 }
                 items(events, key = { it.eventId }) { event ->
                     Column(
-                        Modifier.fillMaxWidth().softSurface(RoundedCornerShape(15.dp)).padding(13.dp),
+                        Modifier.fillMaxWidth().softSurface(ContinuousCornerShape(15.dp)).padding(13.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -94,7 +109,7 @@ fun NotificationCenterScreen(
                         }
                         Text(event.detail, color = spec.muted, fontSize = 11.sp, lineHeight = 15.sp)
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("${event.type} · 共 ${event.occurrences} 次", color = spec.muted.copy(alpha = 0.7f), fontSize = 9.sp, modifier = Modifier.weight(1f))
+                            Text("${event.type} · 共 ${event.occurrences} 次", color = spec.muted.copy(alpha = 0.7f), fontSize = 10.sp, modifier = Modifier.weight(1f))
                             if (event.status == ProactiveStatus.SNOOZED) Text("已稍后提醒", color = spec.muted, fontSize = 10.sp)
                             TextButton(onClick = { onSnooze(event.eventId) }) { Text("稍后 1 小时", color = spec.cyan, fontSize = 10.sp) }
                             TextButton(onClick = { onMute(event.eventId) }) { Text("静音", color = spec.muted, fontSize = 10.sp) }

@@ -20,6 +20,10 @@ interface AiProvider {
     suspend fun testConnection(): AppResult<Unit> =
         AppResult.failure(AppError.Configuration("当前服务商未实现连接测试"))
 
+    /** Fetches model IDs advertised by a provider, without generating a completion. */
+    suspend fun listModels(): AppResult<List<String>> =
+        AppResult.failure(AppError.Configuration("当前服务商未实现模型目录读取"))
+
     /** Providers may report transport phases; default keeps simple/fake providers source-compatible. */
     suspend fun complete(messages: List<ChatMessage>, onPhase: (AiRequestPhase) -> Unit): AppResult<String> {
         onPhase(AiRequestPhase.REQUESTING)
@@ -46,7 +50,7 @@ interface AiProvider {
 }
 
 /** Network protocol is explicit so a profile cannot accidentally be sent through the wrong wire format. */
-enum class ProviderProtocol { OPENAI_COMPATIBLE, ANTHROPIC_MESSAGES, GEMINI_GENERATE_CONTENT }
+enum class ProviderProtocol { OPENAI_COMPATIBLE, ANTHROPIC_MESSAGES, GEMINI_INTERACTIONS, GEMINI_GENERATE_CONTENT }
 
 enum class AiRequestPhase { REQUESTING, RECEIVING_REPLY }
 
@@ -63,6 +67,12 @@ data class AiChatConfig(
     val baseUrl: String,
     val model: String,
     val apiKey: String,
+    val temperature: Double? = null,
+    val maxOutputTokens: Int? = null,
+    val systemInstruction: String = "",
+    val customHeaders: Map<String, String> = emptyMap(),
+    val connectTimeoutMs: Int? = null,
+    val readTimeoutMs: Int? = null,
 ) {
     fun isConfigured(): Boolean =
         baseUrl.isNotBlank() && model.isNotBlank() && apiKey.isNotBlank()

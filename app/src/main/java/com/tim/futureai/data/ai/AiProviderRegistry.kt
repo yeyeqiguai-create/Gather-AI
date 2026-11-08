@@ -15,6 +15,9 @@ fun interface AiProviderFactory {
 class AiProviderRegistry(
     private val factories: Map<ProviderProtocol, AiProviderFactory> = mapOf(
         ProviderProtocol.OPENAI_COMPATIBLE to AiProviderFactory { config -> OpenAiCompatProvider(config) },
+        ProviderProtocol.ANTHROPIC_MESSAGES to AiProviderFactory { config -> AnthropicMessagesProvider(config) },
+        ProviderProtocol.GEMINI_INTERACTIONS to AiProviderFactory { config -> GeminiInteractionsProvider(config) },
+        ProviderProtocol.GEMINI_GENERATE_CONTENT to AiProviderFactory { config -> GeminiGenerateContentProvider(config) },
     ),
 ) {
     fun create(protocol: ProviderProtocol, configProvider: () -> AiChatConfig?): AiProvider =

@@ -1,6 +1,9 @@
 package com.tim.futureai.ui.theme
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
@@ -11,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
@@ -20,7 +24,7 @@ import androidx.compose.ui.unit.dp
 import com.tim.futureai.ui.liquid.AmbientBackdrop
 import com.tim.futureai.ui.liquid.GlassMaterial
 import com.tim.futureai.ui.liquid.LocalLiquidSpec
-import com.tim.futureai.ui.liquid.LiquidIndigoSpec
+import com.tim.futureai.ui.liquid.MonochromeBlackSpec
 import com.tim.futureai.ui.liquid.LiquidVisualTheme
 import com.tim.futureai.ui.liquid.glassSurface
 
@@ -32,7 +36,7 @@ import com.tim.futureai.ui.liquid.glassSurface
  * the four-theme system. New code should prefer `ui.liquid` tokens directly.
  */
 
-val LocalFutureColors = staticCompositionLocalOf { LiquidIndigoSpec }
+val LocalFutureColors = staticCompositionLocalOf { MonochromeBlackSpec }
 
 object FuturePalette {
     val Night: Color @Composable get() = LocalLiquidSpec.current.ambientMiddle
@@ -59,13 +63,15 @@ fun FutureBackdrop(modifier: Modifier = Modifier, content: @Composable () -> Uni
 }
 
 /**
- * Legacy glass panel. Routes to the real Liquid glass pipeline; surfaces that
- * are part of a recorded stage source (scrolling cards) automatically degrade
- * to the fast tint-only material.
+ * Quiet content surface. Optical blur is reserved for stage overlays so text
+ * and scrolling cards remain crisp without recursively sampling themselves.
  */
 @Composable
-fun Modifier.glassPanel(shape: androidx.compose.foundation.shape.RoundedCornerShape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)): Modifier {
-    return glassSurface(GlassMaterial.FROSTED, shape)
+fun Modifier.glassPanel(shape: Shape = ContinuousCornerShape(24.dp)): Modifier {
+    val spec = LocalLiquidSpec.current
+    return this.clip(shape).background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(
+        androidx.compose.ui.graphics.lerp(spec.surfaceTint, Color.White, if (spec.isLight) 0.055f else 0.008f), spec.surfaceTint,
+    ))).border(1.dp, spec.surfaceEdge.copy(alpha = 0.72f), shape)
 }
 
 @Composable
@@ -121,6 +127,8 @@ fun FutureGlyph(
                 line(5f, 12f, 12f, 5f, 2f)
                 line(5f, 12f, 12f, 19f, 2f)
             }
+            "menu" -> { line(4f, 7f, 20f, 7f, 1.8f); line(4f, 16f, 15f, 16f, 1.8f) }
+            "arrow_up" -> { line(12f, 20f, 12f, 4f, 2f); line(5f, 11f, 12f, 4f, 2f); line(12f, 4f, 19f, 11f, 2f) }
             "send" -> {
                 val path = Path().apply {
                     moveTo(3f * unit, 11f * unit)

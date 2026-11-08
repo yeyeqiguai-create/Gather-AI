@@ -21,6 +21,16 @@ object AttachmentImporter {
         listOf(attachment.localPath, attachment.previewPath).filter(String::isNotBlank).forEach { File(it).delete() }
     }
 
+    fun deleteFromPrivateStore(context: Context, attachment: ChatAttachment) {
+        val root = File(context.filesDir, "attachments").canonicalFile
+        listOf(attachment.localPath, attachment.previewPath).filter(String::isNotBlank).forEach { path ->
+            runCatching {
+                val target = File(path).canonicalFile
+                if (target.parentFile == root) target.delete()
+            }
+        }
+    }
+
     fun import(context: Context, uri: Uri): ChatAttachment {
         val resolver = context.contentResolver
         val name = displayName(context, uri)

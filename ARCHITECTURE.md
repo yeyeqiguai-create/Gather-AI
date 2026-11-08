@@ -71,6 +71,13 @@ feature ──▶ domain ◀── data
 - `platform.speech.SpeechController` 封装 Android TTS；语音输入交给系统识别 Intent，未安装识别服务或权限被拒绝时回退为明确提示。
 - 用户消息支持编辑（截断后续依赖回复）、分享；整段会话通过 Android 文件保存器导出。
 
+## Gather Link 设备互联
+
+- `domain.link.GatherLinkSession` 是设备互联会话边界；状态只含纯 Kotlin 文件元数据和局域网连接信息。`platform.link.LocalGatherLinkSession` 管理本地 HTTP 服务、文件选择 URI、配对会话与应用私有收件箱；`feature.link.GatherLinkScreen` 负责用户操作、系统文件选择器与保存位置选择。
+- 主机只绑定已枚举到的私有 IPv4 地址，不监听公网接口；每次开启会话生成 6 位配对码，按来源地址限速，并使用短时 HttpOnly/SameSite 会话 Cookie。会话最多配对 12 台设备；停止后 Cookie 失效，收件箱内文件仍留在应用私有目录，直至用户删除。
+- 浏览器页面不加载远程脚本或字体。已配对设备可下载主机选中的文件、上传文件到本机收件箱，也可下载当前互联会话内其他设备上传的文件。
+- 该服务使用 HTTP，仅用于可信的同一局域网；应用不提供 TLS 或云端中继。Android 17 / targetSdk 37 通过 `ACCESS_LOCAL_NETWORK` 运行时权限保护局域网访问；旧系统不请求此权限。
+
 ## 全量设置中心
 
 - `domain.settings.AppPreferences` 是通用偏好与设置分类注册表；`SettingsSearchRegistry` 注册真实可用设置项与动态 Provider/模型条目，搜索结果直接导航到所属分类。

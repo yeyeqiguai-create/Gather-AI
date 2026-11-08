@@ -1,5 +1,16 @@
 package com.tim.futureai.feature.health
 
+import com.tim.futureai.ui.liquid.GlassMaterial
+import com.tim.futureai.ui.liquid.glassSurface
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,7 +27,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.tim.futureai.ui.theme.ContinuousCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -59,11 +70,15 @@ fun HealthCenterScreen(
     modifier: Modifier = Modifier,
 ) {
     val spec = LocalLiquidSpec.current
+    val frameDensity = LocalDensity.current
+    var frameHeader by remember { mutableStateOf(88.dp) }
     LiquidStage(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize().imePadding(),
         overlay = {
             Row(
-                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 12.dp),
+                Modifier.fillMaxWidth()
+                    .onSizeChanged { frameHeader = with(frameDensity) { it.height.toDp() } }
+                    .glassSurface(GlassMaterial.FROSTED, RectangleShape).statusBarsPadding().padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(Modifier.size(42.dp).clip(CircleShape).softSurface(CircleShape).clickable(onClick = onBack), contentAlignment = Alignment.Center) {
@@ -77,7 +92,7 @@ fun HealthCenterScreen(
         },
         source = {
             Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 18.dp, end = 18.dp, top = 104.dp, bottom = 24.dp),
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(start = 18.dp, end = 18.dp, top = frameHeader + 12.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(11.dp),
             ) {
                 if (notificationDegraded) StatusLine(
@@ -88,7 +103,7 @@ fun HealthCenterScreen(
                     onClick = onRunAll,
                     enabled = repairingCheckId == null,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(13.dp),
+                    shape = ContinuousCornerShape(13.dp),
                 ) {
                     if (repairingCheckId != null) {
                         CircularProgressIndicator(Modifier.size(15.dp), color = Color.White, strokeWidth = 2.dp)
@@ -123,7 +138,7 @@ fun HealthCenterScreen(
                 Text("检查项", color = spec.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 results.forEach { result ->
                     Column(
-                        Modifier.fillMaxWidth().softSurface(RoundedCornerShape(14.dp)).padding(12.dp),
+                        Modifier.fillMaxWidth().softSurface(ContinuousCornerShape(14.dp)).padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -133,14 +148,14 @@ fun HealthCenterScreen(
                             Text(statusLabel(result.status), color = statusColor(result.status), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                         }
                         Text(result.detail, color = spec.muted, fontSize = 10.sp, lineHeight = 14.sp)
-                        Text("证据：${result.evidence}", color = spec.muted.copy(alpha = 0.75f), fontSize = 9.sp)
+                        Text("证据：${result.evidence}", color = spec.muted.copy(alpha = 0.75f), fontSize = 10.sp)
                         val records = repairRecords.filter { it.checkId == result.checkId }
                         if (records.isNotEmpty()) {
                             Text(
                                 "修复记录：" + records.take(3).joinToString("；") { r ->
                                     "第${r.attempt}次 ${r.outcome}${r.recheckStatus?.let { " · 复检 $it" } ?: ""}"
                                 },
-                                color = spec.muted, fontSize = 9.sp, lineHeight = 13.sp,
+                                color = spec.muted, fontSize = 10.sp, lineHeight = 13.sp,
                             )
                         }
                     }
@@ -154,15 +169,15 @@ fun HealthCenterScreen(
 @Composable
 fun IssueCard(issue: HealthIssue, repairable: Boolean, repairing: Boolean, repairTitle: String?, onRepair: () -> Unit) {
     val spec = LocalLiquidSpec.current
-    Column(Modifier.fillMaxWidth().softSurface(RoundedCornerShape(14.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(Modifier.fillMaxWidth().softSurface(ContinuousCornerShape(14.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(9.dp).clip(CircleShape).background(statusColor(issue.status)))
             Spacer(Modifier.width(8.dp))
             Text(issue.detail, color = spec.text, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
             Text(statusLabel(issue.status), color = statusColor(issue.status), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
         }
-        Text("证据：${issue.evidence}", color = spec.muted, fontSize = 9.sp)
-        Text("首次发现 ${issue.occurrences} 次前 · 最近 ${issue.lastSeenAtMs}", color = spec.muted.copy(alpha = 0.7f), fontSize = 9.sp)
+        Text("证据：${issue.evidence}", color = spec.muted, fontSize = 10.sp)
+        Text("首次发现 ${issue.occurrences} 次前 · 最近 ${issue.lastSeenAtMs}", color = spec.muted.copy(alpha = 0.7f), fontSize = 10.sp)
         if (repairable && repairTitle != null) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onRepair, enabled = !repairing) {
@@ -175,7 +190,7 @@ fun IssueCard(issue: HealthIssue, repairable: Boolean, repairing: Boolean, repai
 
 @Composable
 private fun StatusLine(text: String, color: Color) {
-    Text(text, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).softSurface(RoundedCornerShape(12.dp)).padding(11.dp),
+    Text(text, modifier = Modifier.fillMaxWidth().clip(ContinuousCornerShape(12.dp)).softSurface(ContinuousCornerShape(12.dp)).padding(11.dp),
         color = color, fontSize = 11.sp, lineHeight = 15.sp)
 }
 

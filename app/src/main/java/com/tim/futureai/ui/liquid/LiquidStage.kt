@@ -1,5 +1,6 @@
 package com.tim.futureai.ui.liquid
 
+import android.os.Build
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -15,11 +16,11 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
@@ -37,16 +38,22 @@ fun LiquidStage(
     overlay: @Composable BoxScope.() -> Unit,
 ) {
     val state = remember { LiquidGlassState() }
+    val recordSource = GlassRenderPolicy.recordsSource(Build.VERSION.SDK_INT, LocalGlassPrefs.current)
+    // Leaving this branch releases the layer when glass is disabled. Fallback
+    // modes draw directly, without recording the entire scrolling screen.
+    state.source = if (recordSource) rememberGraphicsLayer() else null
     CompositionLocalProvider(LocalGlassState provides state) {
         Box(
             modifier
                 .fillMaxSize()
-                .onGloballyPositioned { state.stagePosition = it.boundsInRoot().topLeft },
+                .then(if (recordSource) Modifier.onGloballyPositioned {
+                    state.stagePosition = it.boundsInRoot().topLeft
+                } else Modifier),
         ) {
             Box(
                 Modifier
                     .matchParentSize()
-                    .liquidSource(state),
+                    .then(if (recordSource) Modifier.liquidSource(state) else Modifier),
             ) {
                 AmbientBackdrop()
                 source()
@@ -83,14 +90,18 @@ fun LiquidBackdrop(
 fun AmbientBackdrop() {
     val spec = LocalLiquidSpec.current
     val prefs = LocalGlassPrefs.current
-    val drift = prefs.dynamicBackground && !prefs.reduceMotion
-    val transition = rememberInfiniteTransition(label = "aurora")
-    val phase by transition.animateFloat(
+    val drift = prefs.dynamicBackground && !prefs.reduceMotion && !prefs.lowPerformance &&
+        (spec.blobPrimary.alpha > 0f || spec.blobSecondary.alpha > 0f || spec.blobTertiary.alpha > 0f)
+    val phase = if (drift) {
+        val transition = rememberInfiniteTransition(label = "ambient-light")
+        val animatedPhase by transition.animateFloat(
         initialValue = 0f,
         targetValue = (2 * Math.PI).toFloat(),
         animationSpec = infiniteRepeatable(tween(26_000, easing = LinearEasing), RepeatMode.Restart),
         label = "aurora-phase",
-    )
+        )
+        animatedPhase
+    } else 0f
     Canvas(Modifier.fillMaxSize()) {
         drawRect(Brush.verticalGradient(
             0f to spec.ambientTop,
@@ -113,11 +124,13 @@ fun AmbientBackdrop() {
             )
         }
         blobs.forEach { (color, center, radius) ->
-            drawCircle(
-                brush = Brush.radialGradient(listOf(color, Color.Transparent), center = center, radius = radius),
-                radius = radius,
-                center = center,
-            )
+            if (color.alpha > 0f && radius > 0f) {
+                drawCircle(
+                    brush = Brush.radialGradient(listOf(color, Color.Transparent), center = center, radius = radius),
+                    radius = radius,
+                    center = center,
+                )
+            }
         }
         if (spec.backdropTextureAlpha > 0f) {
             // Fine grain: sparse hairline strokes keep the backdrop from banding.

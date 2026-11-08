@@ -1,5 +1,12 @@
 package com.tim.futureai.feature.arena
 
+import com.tim.futureai.ui.liquid.GlassMaterial
+import com.tim.futureai.ui.liquid.glassSurface
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,7 +24,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.tim.futureai.ui.theme.ContinuousCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -63,11 +70,15 @@ fun ArenaScreen(
     val spec = LocalLiquidSpec.current
     var prompt by remember { mutableStateOf("") }
     val selected = remember { mutableStateListOf<String>() }
+    val frameDensity = LocalDensity.current
+    var frameHeader by remember { mutableStateOf(88.dp) }
     LiquidStage(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize().imePadding(),
         overlay = {
             Row(
-                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 12.dp),
+                Modifier.fillMaxWidth()
+                    .onSizeChanged { frameHeader = with(frameDensity) { it.height.toDp() } }
+                    .glassSurface(GlassMaterial.FROSTED, RectangleShape).statusBarsPadding().padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(Modifier.size(42.dp).clip(CircleShape).softSurface(CircleShape).clickable(onClick = onBack), contentAlignment = Alignment.Center) {
@@ -81,14 +92,14 @@ fun ArenaScreen(
         },
         source = {
             Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 18.dp, end = 18.dp, top = 104.dp, bottom = 24.dp),
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(start = 18.dp, end = 18.dp, top = frameHeader + 12.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(11.dp),
             ) {
-                Column(Modifier.fillMaxWidth().softSurface(RoundedCornerShape(16.dp)).padding(13.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.fillMaxWidth().softSurface(ContinuousCornerShape(16.dp)).padding(13.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("问题（至少选择两个模型）", color = spec.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     BasicTextField(
                         value = prompt, onValueChange = { prompt = it.take(2000) },
-                        modifier = Modifier.fillMaxWidth().height(88.dp).clip(RoundedCornerShape(12.dp))
+                        modifier = Modifier.fillMaxWidth().height(88.dp).clip(ContinuousCornerShape(12.dp))
                             .background(spec.surfaceTint.copy(alpha = 0.5f)).padding(11.dp),
                         textStyle = androidx.compose.ui.text.TextStyle(color = spec.text, fontSize = 13.sp, lineHeight = 18.sp),
                         decorationBox = { inner ->
@@ -100,7 +111,7 @@ fun ArenaScreen(
                         val active = profile.id in selected
                         val available = profile.isAvailableForRouting
                         Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(11.dp))
+                            Modifier.fillMaxWidth().clip(ContinuousCornerShape(11.dp))
                                 .background(if (active) spec.accent.copy(alpha = 0.18f) else spec.surfaceTint.copy(alpha = 0.4f))
                                 .clickable(enabled = available) {
                                     if (active) selected.remove(profile.id) else selected.add(profile.id)
@@ -116,7 +127,7 @@ fun ArenaScreen(
                         onClick = { onRun(prompt.trim(), selected.toList()) },
                         enabled = !running && prompt.isNotBlank() && selected.size >= 2,
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = ContinuousCornerShape(12.dp),
                     ) {
                         if (running) {
                             CircularProgressIndicator(Modifier.size(15.dp), color = Color.White, strokeWidth = 2.dp)
@@ -128,7 +139,7 @@ fun ArenaScreen(
                 sessions.firstOrNull()?.let { session ->
                     Text("最近一轮", color = spec.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     session.entries.forEach { entry ->
-                        Column(Modifier.fillMaxWidth().softSurface(RoundedCornerShape(14.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(Modifier.fillMaxWidth().softSurface(ContinuousCornerShape(14.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(entry.modelKey, color = spec.text, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
                                 val mark = session.verification?.perEntry?.get(entry.modelKey)
@@ -138,16 +149,16 @@ fun ArenaScreen(
                                 }
                             }
                             if (entry.error != null) Text("错误：${entry.error}", color = spec.danger, fontSize = 10.sp)
-                            else Text(entry.answer.orEmpty(), color = spec.text, fontSize = 12.sp, lineHeight = 17.sp, maxLines = 12)
+                            else Text(entry.answer.orEmpty(), color = spec.text, fontSize = 12.sp, lineHeight = 17.sp, maxLines = Int.MAX_VALUE)
                             Text("延迟 ${entry.latencyMs} ms" +
                                 (entry.promptTokens?.let { " · 输入 $it tok" } ?: "") +
                                 (entry.completionTokens?.let { " · 输出 $it tok" } ?: "") +
                                 (entry.costUsd?.let { " · 约 $${"%.6f".format(it)}" } ?: ""),
-                                color = spec.muted.copy(alpha = 0.75f), fontSize = 9.sp)
+                                color = spec.muted.copy(alpha = 0.75f), fontSize = 10.sp)
                         }
                     }
                     session.review?.let { review ->
-                        Column(Modifier.fillMaxWidth().softSurface(RoundedCornerShape(14.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(Modifier.fillMaxWidth().softSurface(ContinuousCornerShape(14.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text("交叉评审 · ${review.reviewerModelKey}", color = spec.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                             if (review.agreements.isNotEmpty()) Text("一致：${review.agreements.joinToString("；")}", color = spec.success, fontSize = 11.sp, lineHeight = 15.sp)
                             if (review.conflicts.isNotEmpty()) Text("分歧：${review.conflicts.joinToString("；")}", color = spec.warning, fontSize = 11.sp, lineHeight = 15.sp)
@@ -165,7 +176,7 @@ fun ArenaScreen(
                 Text("模型信誉（按任务类型 · 样本不足不计分）", color = spec.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 if (reputations.isEmpty()) StatusCard("尚无信誉样本；完成任务或 Arena 对决后按（模型 × 任务类型）累计。", passed = null)
                 reputations.forEach { view ->
-                    Column(Modifier.fillMaxWidth().softSurface(RoundedCornerShape(14.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Column(Modifier.fillMaxWidth().softSurface(ContinuousCornerShape(14.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("${view.modelKey} · ${view.category}", color = spec.text, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
                             Text(
@@ -174,10 +185,10 @@ fun ArenaScreen(
                             )
                         }
                         Text("样本 ${view.sampleSize} · 失败 ${view.failure} · 平均延迟 ${view.averageLatencyMs ?: "—"} ms · 累计费用 ${"$"}${"%.6f".format(view.totalCostUsd)}",
-                            color = spec.muted, fontSize = 9.sp)
+                            color = spec.muted, fontSize = 10.sp)
                         if (view.failureTypes.isNotEmpty()) {
                             Text("失败类型：" + view.failureTypes.entries.joinToString("；") { "${it.key} ×${it.value}" },
-                                color = spec.muted.copy(alpha = 0.8f), fontSize = 9.sp)
+                                color = spec.muted.copy(alpha = 0.8f), fontSize = 10.sp)
                         }
                     }
                 }
@@ -194,7 +205,7 @@ fun ArenaScreen(
 private fun StatusCard(text: String, passed: Boolean?) {
     val spec = LocalLiquidSpec.current
     val accent = when (passed) { true -> spec.success; false -> spec.danger; null -> spec.accent }
-    Text(text, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-        .background(accent.copy(alpha = 0.12f)).border(1.dp, accent.copy(alpha = 0.4f), RoundedCornerShape(12.dp)).padding(11.dp),
+    Text(text, modifier = Modifier.fillMaxWidth().clip(ContinuousCornerShape(12.dp))
+        .background(accent.copy(alpha = 0.12f)).border(1.dp, accent.copy(alpha = 0.4f), ContinuousCornerShape(12.dp)).padding(11.dp),
         color = if (passed == false) spec.danger else spec.text, fontSize = 11.sp, lineHeight = 15.sp)
 }

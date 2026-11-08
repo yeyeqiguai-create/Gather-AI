@@ -1,5 +1,12 @@
 package com.tim.futureai.feature.audit
 
+import com.tim.futureai.ui.liquid.GlassMaterial
+import com.tim.futureai.ui.liquid.glassSurface
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,7 +21,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.tim.futureai.ui.theme.ContinuousCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -57,11 +64,15 @@ fun AuditScreen(
     val visible = remember(entries, filter) {
         if (filter == "全部") entries else entries.filter { it.kind == filter }
     }
+    val frameDensity = LocalDensity.current
+    var frameHeader by remember { mutableStateOf(88.dp) }
     LiquidStage(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize().imePadding(),
         overlay = {
             Row(
-                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 12.dp),
+                Modifier.fillMaxWidth()
+                    .onSizeChanged { frameHeader = with(frameDensity) { it.height.toDp() } }
+                    .glassSurface(GlassMaterial.FROSTED, RectangleShape).statusBarsPadding().padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(Modifier.size(42.dp).clip(CircleShape).softSurface(CircleShape).clickable(onClick = onBack), contentAlignment = Alignment.Center) {
@@ -75,7 +86,7 @@ fun AuditScreen(
             }
         },
         source = {
-            Column(Modifier.fillMaxSize().padding(start = 18.dp, end = 18.dp, top = 104.dp)) {
+            Column(Modifier.fillMaxSize().padding(start = 18.dp, end = 18.dp, top = frameHeader + 12.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
                     listOf("全部", "TASK", "REPAIR", "NOTIFY").forEach { option ->
                         TextButton(onClick = { filter = option }) {
@@ -88,11 +99,11 @@ fun AuditScreen(
                         item { Text("暂无记录。", color = spec.muted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 20.dp)) }
                     }
                     items(visible, key = { it.id }) { entry ->
-                        Column(Modifier.fillMaxWidth().softSurface(RoundedCornerShape(12.dp)).padding(11.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Column(Modifier.fillMaxWidth().softSurface(ContinuousCornerShape(12.dp)).padding(11.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(entry.kind, color = spec.cyan, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+                                Text(entry.kind, color = spec.cyan, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                                 Spacer(Modifier.weight(1f))
-                                Text(formatAuditTime(entry.atMs), color = spec.muted, fontSize = 9.sp)
+                                Text(formatAuditTime(entry.atMs), color = spec.muted, fontSize = 10.sp)
                             }
                             Text(entry.title, color = spec.text, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 2)
                             if (entry.detail.isNotBlank()) Text(entry.detail, color = spec.muted, fontSize = 10.sp, lineHeight = 14.sp, maxLines = 4)

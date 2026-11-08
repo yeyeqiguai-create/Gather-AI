@@ -19,7 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.tim.futureai.ui.theme.ContinuousCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -85,9 +85,9 @@ fun LiquidPrototypeScreen(onBack: () -> Unit) {
                         val active = entry == selected
                         Box(
                             Modifier
-                                .clip(RoundedCornerShape(11.dp))
+                                .clip(ContinuousCornerShape(11.dp))
                                 .background(if (active) spec.accent.copy(alpha = 0.30f) else spec.surfaceTint.copy(alpha = 0.5f))
-                                .border(1.dp, if (active) spec.accentBright else spec.surfaceEdge, RoundedCornerShape(11.dp))
+                                .border(1.dp, if (active) spec.accentBright else spec.surfaceEdge, ContinuousCornerShape(11.dp))
                                 .clickable { material = entry.name }
                                 .padding(horizontal = 10.dp, vertical = 7.dp),
                         ) {
@@ -110,10 +110,10 @@ fun LiquidPrototypeScreen(onBack: () -> Unit) {
                 ) {
                     MaterialCard("Dark", GlassMaterial.DARK, selected, Modifier.weight(1f)) { material = GlassMaterial.DARK.name }
                     MaterialCard("Accent", GlassMaterial.ACCENT, selected, Modifier.weight(1f)) { material = GlassMaterial.ACCENT.name }
-                    Box(Modifier.weight(1f).glassSurface(selected, RoundedCornerShape(17.dp)).padding(11.dp), contentAlignment = Alignment.Center) {
+                    Box(Modifier.weight(1f).glassSurface(selected, ContinuousCornerShape(17.dp)).padding(11.dp), contentAlignment = Alignment.Center) {
                         Text(
                             "滚动内容穿过玻璃；边缘可见折射与高光。",
-                            color = spec.muted, fontSize = 9.sp, lineHeight = 13.sp,
+                            color = spec.muted, fontSize = 10.sp, lineHeight = 13.sp,
                         )
                     }
                 }
@@ -176,11 +176,11 @@ private fun MaterialCard(
     Box(
         modifier
             .height(64.dp)
-            .glassSurface(material, RoundedCornerShape(17.dp))
+            .glassSurface(material, ContinuousCornerShape(17.dp))
             .border(
                 width = if (active) 1.5.dp else 0.dp,
                 color = spec.accentBright,
-                shape = RoundedCornerShape(17.dp),
+                shape = ContinuousCornerShape(17.dp),
             )
             .clickable(onClick = onClick)
             .padding(11.dp),
@@ -188,7 +188,7 @@ private fun MaterialCard(
         Text(label, color = spec.text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.align(Alignment.TopStart))
         Text(
             if (refraction) "折射" else "模糊",
-            color = spec.muted, fontSize = 9.sp, modifier = Modifier.align(Alignment.BottomStart),
+            color = spec.muted, fontSize = 10.sp, modifier = Modifier.align(Alignment.BottomStart),
         )
     }
 }

@@ -4,6 +4,7 @@ import com.tim.futureai.core.common.JsonMini
 import com.tim.futureai.core.common.JsonValue
 import com.tim.futureai.core.security.SecureValueStore
 import com.tim.futureai.domain.settings.AppPreferences
+import com.tim.futureai.domain.settings.AccentColor
 import com.tim.futureai.domain.settings.RoutingMode
 import com.tim.futureai.domain.settings.ThemeMode
 import com.tim.futureai.domain.settings.VisualTheme
@@ -13,14 +14,18 @@ import com.tim.futureai.domain.task.TaskAuthorizationPolicy
 class AppPreferencesManager(private val store: SecureValueStore) {
     fun load(): AppPreferences = runCatching {
         val fields = JsonMini.parse(store.getString(KEY).orEmpty()).asObject()?.entries ?: return AppPreferences()
-        AppPreferences(
+        val storedDesignVersion = fields["visualDesignVersion"]?.asString()?.toIntOrNull() ?: 0
+        val loaded = AppPreferences(
             themeMode = fields["themeMode"]?.asString()?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM,
             visualTheme = fields["visualTheme"]?.asString()?.let { runCatching { VisualTheme.valueOf(it) }.getOrNull() }
                 ?: when (fields["themeMode"]?.asString()) {
                     "LIGHT" -> VisualTheme.ARCTIC
-                    else -> VisualTheme.LIQUID_INDIGO
+                    else -> VisualTheme.MONOCHROME_BLACK
                 },
-            glassIntensity = fields["glassIntensity"]?.asString()?.toFloatOrNull() ?: 0.6f,
+            followSystemTheme = fields.bool("followSystemTheme", false),
+            accentColor = fields["accentColor"]?.asString()?.let { runCatching { AccentColor.valueOf(it) }.getOrNull() } ?: AccentColor.NEUTRAL,
+            glassIntensity = fields["glassIntensity"]?.asString()?.toFloatOrNull() ?: 0.55f,
+            visualDesignVersion = storedDesignVersion,
             lowPerformanceMode = fields.bool("lowPerformanceMode", false),
             dynamicBackground = fields.bool("dynamicBackground", false),
             fontScale = fields["fontScale"]?.asString()?.toFloatOrNull() ?: 1f,
@@ -28,7 +33,7 @@ class AppPreferencesManager(private val store: SecureValueStore) {
             compactChat = fields.bool("compactChat", false),
             animationsEnabled = fields.bool("animationsEnabled", true),
             showModelNames = fields.bool("showModelNames", true),
-            showRoutingReason = fields.bool("showRoutingReason", true),
+            showRoutingReason = fields.bool("showRoutingReason", false),
             routingMode = fields["routingMode"]?.asString()?.let { runCatching { RoutingMode.valueOf(it) }.getOrNull() } ?: RoutingMode.MANUAL,
             inheritGlobalModel = fields.bool("inheritGlobalModel", true),
             voiceInputEnabled = fields.bool("voiceInputEnabled", true),
@@ -46,6 +51,23 @@ class AppPreferencesManager(private val store: SecureValueStore) {
             requireTaskPlanReview = fields.bool("requireTaskPlanReview", true),
             retainTaskHistory = fields.bool("retainTaskHistory", true),
         ).normalized()
+        if (storedDesignVersion < 3) {
+            val refreshed = loaded.copy(
+                visualTheme = when (loaded.visualTheme) {
+                    VisualTheme.LIQUID_INDIGO, VisualTheme.OBSIDIAN, VisualTheme.MONOCHROME_BLACK -> VisualTheme.GRAPHITE
+                    VisualTheme.AURORA -> VisualTheme.DEEP_SEA
+                    else -> loaded.visualTheme
+                },
+                glassIntensity = when (loaded.glassIntensity) {
+                    0.18f, 0.32f, 0.6f -> 0.55f
+                    else -> loaded.glassIntensity
+                },
+                accentColor = AccentColor.NEUTRAL,
+                visualDesignVersion = 3,
+            )
+            save(refreshed)
+            refreshed
+        } else loaded
     }.getOrDefault(AppPreferences())
 
     fun save(value: AppPreferences): Boolean {
@@ -53,7 +75,10 @@ class AppPreferencesManager(private val store: SecureValueStore) {
         val fields = listOf(
             "themeMode" to p.themeMode.name,
             "visualTheme" to p.visualTheme.name,
+            "followSystemTheme" to p.followSystemTheme.toString(),
+            "accentColor" to p.accentColor.name,
             "glassIntensity" to p.glassIntensity.toString(),
+            "visualDesignVersion" to p.visualDesignVersion.toString(),
             "lowPerformanceMode" to p.lowPerformanceMode.toString(),
             "dynamicBackground" to p.dynamicBackground.toString(),
             "fontScale" to p.fontScale.toString(),

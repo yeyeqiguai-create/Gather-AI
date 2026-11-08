@@ -1,5 +1,12 @@
 package com.tim.futureai.feature.task
 
+import com.tim.futureai.ui.liquid.GlassMaterial
+import com.tim.futureai.ui.liquid.glassSurface
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,7 +24,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.tim.futureai.ui.theme.ContinuousCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -81,11 +88,15 @@ fun TaskCenterScreen(
     }
     val selected = tasks.firstOrNull { it.task.id == selectedId }
 
+    val frameDensity = LocalDensity.current
+    var frameHeader by remember { mutableStateOf(88.dp) }
     LiquidStage(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize().imePadding(),
         overlay = {
             Row(
-                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 12.dp),
+                Modifier.fillMaxWidth()
+                    .onSizeChanged { frameHeader = with(frameDensity) { it.height.toDp() } }
+                    .glassSurface(GlassMaterial.FROSTED, RectangleShape).statusBarsPadding().padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(Modifier.size(42.dp).clip(CircleShape).glassPanel(CircleShape).clickable(onClick = onBack), contentAlignment = Alignment.Center) {
@@ -97,7 +108,7 @@ fun TaskCenterScreen(
                 }
                 if (tasks.any { it.task.status == TaskStatus.WAITING_FOR_APPROVAL }) {
                     Row(
-                        Modifier.clip(RoundedCornerShape(11.dp)).background(FuturePalette.Warning.copy(alpha = 0.16f)).padding(horizontal = 10.dp, vertical = 6.dp),
+                        Modifier.clip(ContinuousCornerShape(11.dp)).background(FuturePalette.Warning.copy(alpha = 0.16f)).padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(Modifier.size(7.dp).clip(CircleShape).background(FuturePalette.Warning))
@@ -109,10 +120,10 @@ fun TaskCenterScreen(
         },
         source = {
             Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 18.dp, end = 18.dp, top = 104.dp, bottom = 24.dp),
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(start = 18.dp, end = 18.dp, top = frameHeader + 12.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Column(Modifier.fillMaxWidth().glassPanel(RoundedCornerShape(20.dp)).padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Column(Modifier.fillMaxWidth().glassPanel(ContinuousCornerShape(20.dp)).padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                     Text("新建可验证任务", color = FuturePalette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     Text(
                         "规划请求会发送给当前选择的 AI 服务商；模型只提出计划。执行仅调用下方列出的本地工具，不运行模型生成代码，也不代表拥有手机系统或其他应用控制能力。",
@@ -120,7 +131,7 @@ fun TaskCenterScreen(
                     )
                     BasicTextField(
                         value = goal, onValueChange = { goal = it.take(4_000) },
-                        modifier = Modifier.fillMaxWidth().height(100.dp).clip(RoundedCornerShape(13.dp)).background(FuturePalette.Panel).padding(12.dp),
+                        modifier = Modifier.fillMaxWidth().height(100.dp).clip(ContinuousCornerShape(13.dp)).background(FuturePalette.Panel).padding(12.dp),
                         textStyle = androidx.compose.ui.text.TextStyle(color = FuturePalette.Text, fontSize = 13.sp, lineHeight = 18.sp),
                         decorationBox = { inner ->
                             if (goal.isBlank()) Text("描述目标，例如：计算 17 × 23，或检查 JSON 是否包含 name,id", color = FuturePalette.Muted, fontSize = 12.sp)
@@ -154,7 +165,7 @@ fun TaskCenterScreen(
                                     busy = false
                                 }
                             },
-                            shape = RoundedCornerShape(12.dp),
+                            shape = ContinuousCornerShape(12.dp),
                         ) {
                             if (busy) CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
                             else Text("生成并校验计划")
@@ -169,7 +180,7 @@ fun TaskCenterScreen(
                 tasks.forEach { aggregate ->
                     val task = aggregate.task
                     Column(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).glassPanel(RoundedCornerShape(16.dp))
+                        Modifier.fillMaxWidth().clip(ContinuousCornerShape(16.dp)).glassPanel(ContinuousCornerShape(16.dp))
                             .clickable { selectedId = task.id }.padding(13.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
@@ -246,7 +257,7 @@ private fun TaskDetails(
     modifier: Modifier = Modifier,
 ) {
     val task = aggregate.task
-    Column(modifier.glassPanel(RoundedCornerShape(20.dp)).padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+    Column(modifier.glassPanel(ContinuousCornerShape(20.dp)).padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
         Text("任务详情", color = FuturePalette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         Text("目标：${task.goal}", color = FuturePalette.Muted, fontSize = 11.sp, lineHeight = 16.sp)
         Text("状态：${task.status.label()} · 计划 ${task.planVersion ?: "—"}", color = statusColor(task.status), fontSize = 11.sp)
@@ -267,12 +278,12 @@ private fun TaskDetails(
                     Text(step.status.label(), color = stepStatusColor(step.status), fontSize = 10.sp)
                 }
                 Text(step.description, color = FuturePalette.Muted, fontSize = 10.sp)
-                Text("执行器：${step.executorId} · 依赖：${step.dependsOn.ifEmpty { listOf("无") }.joinToString()} · 尝试：${step.attemptCount}", color = FuturePalette.Muted, fontSize = 9.sp)
+                Text("执行器：${step.executorId} · 依赖：${step.dependsOn.ifEmpty { listOf("无") }.joinToString()} · 尝试：${step.attemptCount}", color = FuturePalette.Muted, fontSize = 10.sp)
                 Text("验证：${step.verification?.status?.name ?: "未运行"}${step.verification?.reason?.let { " · $it" }.orEmpty()}",
-                    color = if (step.verification?.status == VerificationStatus.VERIFIED) FuturePalette.Cyan else FuturePalette.Muted, fontSize = 9.sp)
+                    color = if (step.verification?.status == VerificationStatus.VERIFIED) FuturePalette.Cyan else FuturePalette.Muted, fontSize = 10.sp)
                 step.result?.let {
                     Text("结果：${it.summary}", color = FuturePalette.Text, fontSize = 10.sp)
-                    Text("输出：${it.output.take(900)}", color = FuturePalette.Muted, fontSize = 9.sp, maxLines = 6, overflow = TextOverflow.Ellipsis)
+                    Text("输出：${it.output.take(900)}", color = FuturePalette.Muted, fontSize = 10.sp, maxLines = 6, overflow = TextOverflow.Ellipsis)
                 }
                 if (step.status == TaskStepStatus.WAITING_FOR_APPROVAL) {
                     TextButton(onClick = { onApprove(step) }) { Text("检查并确认此步骤") }
@@ -309,7 +320,7 @@ private fun TaskDetails(
         }
         Text("审计事件（${aggregate.events.size}）", color = FuturePalette.Text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         aggregate.events.takeLast(20).forEach { event ->
-            Text("#${event.sequence} · ${event.type} · ${event.summary}", color = FuturePalette.Muted, fontSize = 9.sp)
+            Text("#${event.sequence} · ${event.type} · ${event.summary}", color = FuturePalette.Muted, fontSize = 10.sp)
         }
     }
 }
@@ -317,7 +328,7 @@ private fun TaskDetails(
 @Composable
 private fun StatusCard(text: String, failed: Boolean = false) {
     val spec = LocalLiquidSpec.current
-    Text(text, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (failed) spec.danger.copy(alpha = 0.14f) else spec.accent.copy(alpha = 0.12f)).border(1.dp, if (failed) spec.danger.copy(alpha = 0.5f) else spec.accent.copy(alpha = 0.4f), RoundedCornerShape(14.dp)).padding(12.dp),
+    Text(text, modifier = Modifier.fillMaxWidth().clip(ContinuousCornerShape(14.dp)).background(if (failed) spec.danger.copy(alpha = 0.14f) else spec.accent.copy(alpha = 0.12f)).border(1.dp, if (failed) spec.danger.copy(alpha = 0.5f) else spec.accent.copy(alpha = 0.4f), ContinuousCornerShape(14.dp)).padding(12.dp),
         color = if (failed) spec.danger else spec.cyan, fontSize = 11.sp, lineHeight = 16.sp)
 }
 
@@ -348,15 +359,15 @@ private fun StepTimelineRow(step: TaskStep, index: Int, total: Int, content: @Co
                 contentAlignment = Alignment.Center,
             ) {
                 if (statusGlyph != null) FutureGlyph(statusGlyph, tint = railColor, size = 13.dp)
-                else Text("${index + 1}", color = railColor, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                else Text("${index + 1}", color = railColor, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
             if (index < total - 1) {
-                Box(Modifier.width(2.dp).height(44.dp).background(railColor.copy(alpha = 0.22f), RoundedCornerShape(1.dp)))
+                Box(Modifier.width(2.dp).height(44.dp).background(railColor.copy(alpha = 0.22f), ContinuousCornerShape(1.dp)))
             }
         }
         Spacer(Modifier.width(9.dp))
         Column(
-            Modifier.weight(1f).softSurface(RoundedCornerShape(13.dp)).padding(11.dp),
+            Modifier.weight(1f).softSurface(ContinuousCornerShape(13.dp)).padding(11.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             content()

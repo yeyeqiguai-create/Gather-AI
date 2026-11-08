@@ -10,6 +10,7 @@ data class ChatBubble(
     val text: String,
     val status: MessageStatus = MessageStatus.SENT,
     val attachments: List<ChatAttachment> = emptyList(),
+    val isBookmarked: Boolean = false,
 )
 
 internal fun copyMessageText(text: String, writeClipboard: (String) -> Unit, onCopied: () -> Unit) {

@@ -15,6 +15,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import com.tim.futureai.ui.liquid.gatherPageTransition
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.activity.compose.BackHandler
@@ -24,6 +25,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.AlertDialog
@@ -51,6 +53,8 @@ import androidx.lifecycle.lifecycleScope
 import com.tim.futureai.core.security.SecureKeyStore
 import com.tim.futureai.data.ai.AiProviderRegistry
 import com.tim.futureai.data.chat.FileChatSessionsRepository
+import com.tim.futureai.data.chat.PromptLibraryStore
+import com.tim.futureai.data.chat.SystemInstructionLibraryStore
 import com.tim.futureai.data.update.GitHubUpdateRepository
 import com.tim.futureai.data.usage.FileUsageRepository
 import com.tim.futureai.data.arena.FileArenaRepository
@@ -96,11 +100,14 @@ import com.tim.futureai.feature.chat.ChatScreen
 import com.tim.futureai.feature.chat.ChatUiState
 import com.tim.futureai.feature.chat.ChatViewModel
 import com.tim.futureai.data.settings.AiSettingsManager
+import com.tim.futureai.data.settings.parseCustomHeaders
 import com.tim.futureai.data.settings.AppPreferencesManager
 import com.tim.futureai.feature.settings.AiSettingsScreen
 import com.tim.futureai.feature.settings.FullSettingsCenter
 import com.tim.futureai.feature.settings.UsageCard
 import com.tim.futureai.feature.task.TaskCenterScreen
+import com.tim.futureai.feature.link.GatherLinkScreen
+import com.tim.futureai.platform.link.LocalGatherLinkSession
 import com.tim.futureai.feature.update.UpdateSection
 import com.tim.futureai.domain.settings.AppPreferences
 import com.tim.futureai.domain.settings.SettingsSection
@@ -143,6 +150,13 @@ private const val INSTALL_PHASE_AUTHORIZATION = 1
 private const val INSTALL_PHASE_SYSTEM_UI = 2
 
 class MainActivity : ComponentActivity() {
+    private var chatViewModel: ChatViewModel? = null
+
+    override fun onPause() {
+        chatViewModel?.flushPendingChanges()
+        super.onPause()
+    }
+
     private fun createUpdateRepository(): GitHubUpdateRepository {
         val appInfo = packageManager.getPackageInfo(packageName, 0)
         return GitHubUpdateRepository(
@@ -167,6 +181,8 @@ class MainActivity : ComponentActivity() {
         val keyStore = SecureKeyStore(this)
         val settingsManager = AiSettingsManager(keyStore)
         val appPreferencesManager = AppPreferencesManager(keyStore)
+        val promptLibraryStore = PromptLibraryStore(keyStore)
+        val instructionLibraryStore = SystemInstructionLibraryStore(keyStore)
         val providerRegistry = AiProviderRegistry()
         val provider = providerRegistry.create(ProviderProtocol.OPENAI_COMPATIBLE) { settingsManager.configFor(null) }
         val sessionsRepository = FileChatSessionsRepository(
@@ -177,6 +193,7 @@ class MainActivity : ComponentActivity() {
         val taskRepository = FileTaskRepository(File(filesDir, "verified-tasks-v1.json"))
         val taskToolRegistry = BuiltInTaskToolRegistry(taskRepository)
         val taskEngine = TaskEngine(taskRepository, taskToolRegistry, (application as FutureAiApplication).taskScope)
+        val gatherLinkSession = LocalGatherLinkSession(applicationContext)
         val taskPlanSourceFactory = AiTaskPlanSourceFactory(settingsManager, providerRegistry, usageRepository)
         // v0.1.8: self-diagnostics, self-healing, proactive engine, reputation, arena.
         val clock: () -> Long = { System.currentTimeMillis() }
@@ -276,28 +293,75 @@ class MainActivity : ComponentActivity() {
                 } else settingsManager.load().takeIf { it.isAvailableForRouting }?.id
             },
             usageRepository = usageRepository,
+            startFreshSession = false,
+            onUnusedAttachments = { attachments -> attachments.forEach { AttachmentImporter.deleteFromPrivateStore(this, it) } },
         )
+        chatViewModel = viewModel
         viewModel.setModelChoices(settingsManager.profiles())
         viewModel.setHistoryLimit(appPreferencesManager.load().historyLimit)
         setContent {
             var appPreferences by remember { mutableStateOf(appPreferencesManager.load()) }
+            var customPrompts by remember { mutableStateOf(promptLibraryStore.load()) }
+            var instructionTemplates by remember { mutableStateOf(instructionLibraryStore.load()) }
+            val saveInstructionTemplate: (com.tim.futureai.domain.chat.SystemInstructionTemplate) -> Boolean = { template ->
+                if (instructionTemplates.none { it.id == template.id } && instructionTemplates.size >= SystemInstructionLibraryStore.MAX_COUNT) {
+                    viewModel.showNotice("模板数量已达上限，请先删除不再使用的模板")
+                    false
+                } else {
+                val next = (instructionTemplates.filterNot { it.id == template.id } + template).takeLast(SystemInstructionLibraryStore.MAX_COUNT)
+                if (instructionLibraryStore.save(next)) { instructionTemplates = next; true }
+                else { viewModel.showNotice("系统指令模板保存失败，请检查设备存储空间"); false }
+                }
+            }
+            val deleteInstructionTemplate: (String) -> Boolean = { id ->
+                val next = instructionTemplates.filterNot { it.id == id }
+                if (instructionLibraryStore.save(next)) { instructionTemplates = next; true }
+                else { viewModel.showNotice("系统指令模板删除失败，请重试"); false }
+            }
+            val importInstructionTemplates: (String) -> String = { json ->
+                SystemInstructionLibraryStore.importPortable(json).fold(
+                    onSuccess = { incoming ->
+                        val known = instructionTemplates.mapTo(mutableSetOf()) { it.id }
+                        val capacity = (SystemInstructionLibraryStore.MAX_COUNT - instructionTemplates.size).coerceAtLeast(0)
+                        val additions = incoming.filter { known.add(it.id) }.take(capacity)
+                        if (additions.isEmpty()) "没有新增模板；重复项目或已满的模板库已跳过"
+                        else {
+                            val next = instructionTemplates + additions
+                            if (instructionLibraryStore.save(next)) {
+                                instructionTemplates = next
+                                "已导入 ${additions.size} 项${if (incoming.size > additions.size) "；其余重复或超出容量的项目已跳过" else ""}"
+                            } else "导入失败：无法写入加密存储"
+                        }
+                    },
+                    onFailure = { "导入失败：${it.message ?: "文件格式无效"}" },
+                )
+            }
+            val exportInstructionTemplates: (String) -> Unit = { json ->
+                runCatching {
+                    (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                        .setPrimaryClip(ClipData.newPlainText("Gather AI 系统指令模板", json))
+                    viewModel.showNotice("模板 JSON 已复制，可粘贴到文件或其他设备")
+                }.onFailure { viewModel.showNotice("无法复制模板 JSON") }
+            }
             val systemAnimationsEnabled = remember {
                 val motionEnabled = if (Build.VERSION.SDK_INT >= 26) ValueAnimator.areAnimatorsEnabled()
                 else Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f
                 motionEnabled
             }
             val reducedMotion = !appPreferences.animationsEnabled || !systemAnimationsEnabled
+            val effectiveVisualTheme = appPreferences.effectiveVisualTheme(isSystemInDarkTheme())
             GatherLiquidTheme(
-                    appPreferences.visualTheme,
-                    appPreferences.fontScale,
-                    GlassRenderPrefs(
+                    visualTheme = effectiveVisualTheme,
+                    accentColor = appPreferences.accentColor,
+                    fontScale = appPreferences.fontScale,
+                    glassPrefs = GlassRenderPrefs(
                         intensity = appPreferences.glassIntensity,
                         lowPerformance = appPreferences.lowPerformanceMode,
                         dynamicBackground = appPreferences.dynamicBackground,
                         reduceMotion = reducedMotion,
                     ),
                 ) {
-                val lightSystemBars = appPreferences.visualTheme == VisualTheme.ARCTIC
+                val lightSystemBars = effectiveVisualTheme.isLight
                 SideEffect {
                     WindowCompat.getInsetsController(window, window.decorView).apply {
                         isAppearanceLightStatusBars = lightSystemBars
@@ -306,14 +370,16 @@ class MainActivity : ComponentActivity() {
                 }
                 val initialSettings = remember { settingsManager.load() }
                 var profiles by remember { mutableStateOf(settingsManager.profiles()) }
+                var isAiConfigured by remember { mutableStateOf(profiles.any { it.isAvailableForRouting }) }
                 var usage by remember { mutableStateOf(UsageSnapshot()) }
-                var uiState by remember { mutableStateOf<ChatUiState>(ChatUiState()) }
+                var uiState by remember { mutableStateOf(viewModel.state) }
                 var showSettings by remember { mutableStateOf(false) }
                 var showTaskCenter by remember { mutableStateOf(false) }
                 var showHealth by remember { mutableStateOf(false) }
                 var showCenter by remember { mutableStateOf(false) }
                 var showArena by remember { mutableStateOf(false) }
                 var showAudit by remember { mutableStateOf(false) }
+                var showLink by remember { mutableStateOf(false) }
                 var auditEntries by remember { mutableStateOf<List<AuditEntry>>(emptyList()) }
 
                 var showOnboarding by remember { mutableStateOf(!appPreferences.onboardingDone) }
@@ -330,11 +396,15 @@ class MainActivity : ComponentActivity() {
                                         id = "onboarding-" + System.currentTimeMillis(),
                                         name = "默认配置", baseUrl = baseUrl, model = model, apiKey = apiKey,
                                     )
-                                    settingsManager.save(profile)
-                                    val provider = providerRegistry.create(profile.providerProtocol) { settingsManager.configFor(profile.id) }
-                                    when (val result = provider.testConnection()) {
-                                        is com.tim.futureai.core.common.AppResult.Success -> report("连接成功")
-                                        is com.tim.futureai.core.common.AppResult.Failure -> report("连接失败：" + result.error)
+                                    val validation = AiSettingsManager.validate(profile)
+                                    if (validation != null) report(validation)
+                                    else {
+                                        val transientConfig = AiChatConfig(baseUrl = baseUrl, model = model, apiKey = apiKey)
+                                        val testProvider = providerRegistry.create(profile.providerProtocol) { transientConfig }
+                                        when (val result = testProvider.testConnection()) {
+                                            is com.tim.futureai.core.common.AppResult.Success -> report("连接成功")
+                                            is com.tim.futureai.core.common.AppResult.Failure -> report("连接失败：" + ChatViewModel.errorToUserMessage(result.error))
+                                        }
                                     }
                                 }
                             },
@@ -343,11 +413,19 @@ class MainActivity : ComponentActivity() {
                                     id = "onboarding-" + System.currentTimeMillis(),
                                     name = "默认配置", baseUrl = baseUrl, model = model, apiKey = apiKey,
                                 )
-                                settingsManager.save(profile)
-                                viewModel.setModelChoices(settingsManager.profiles())
-                                appPreferences = appPreferences.copy(onboardingDone = true)
-                                appPreferencesManager.save(appPreferences)
-                                showOnboarding = false
+                                when (val saved = settingsManager.save(profile)) {
+                                    SettingsSaveResult.Saved -> {
+                                        profiles = settingsManager.profiles()
+                                        viewModel.setModelChoices(profiles)
+                                        isAiConfigured = profiles.any { it.isAvailableForRouting }
+                                        appPreferences = appPreferences.copy(onboardingDone = true)
+                                        appPreferencesManager.save(appPreferences)
+                                        showOnboarding = false
+                                        null
+                                    }
+                                    is SettingsSaveResult.Invalid -> saved.message
+                                    SettingsSaveResult.StorageError -> "保存失败，请检查存储空间后重试"
+                                }
                             },
                             onSkip = {
                                 appPreferences = appPreferences.copy(onboardingDone = true)
@@ -392,9 +470,9 @@ class MainActivity : ComponentActivity() {
                 var settings by remember { mutableStateOf(initialSettings) }
                 var settingsOperationMessage by remember { mutableStateOf<String?>(null) }
                 var cacheBytes by remember { mutableStateOf(0L) }
-                var isAiConfigured by remember { mutableStateOf(initialSettings.isAvailableForRouting) }
                 var settingsMessage by remember { mutableStateOf<String?>(null) }
                 var settingsMessageIsError by remember { mutableStateOf(false) }
+                var modelsLoading by remember { mutableStateOf(false) }
                 var updateResult by remember { mutableStateOf<UpdateCheckResult?>(null) }
                 var updateChecking by remember { mutableStateOf(false) }
                 var updateMessage by remember { mutableStateOf<String?>(null) }
@@ -425,10 +503,10 @@ class MainActivity : ComponentActivity() {
                 val screenTransitionMillis = if (appPreferences.animationsEnabled && systemAnimationsEnabled) 180 else 0
                 // System back / edge swipe: leave settings or task center instead of closing the app.
                 BackHandler(
-                    enabled = showSettings || showTaskCenter || showHealth || showCenter || showArena || showAudit,
+                    enabled = showSettings || showTaskCenter || showHealth || showCenter || showArena || showAudit || showLink,
                 ) {
                     showSettings = false; showTaskCenter = false
-                    showHealth = false; showCenter = false; showArena = false; showAudit = false
+                    showHealth = false; showCenter = false; showArena = false; showAudit = false; showLink = false
                 }
                 val speechController = remember {
                     SpeechController(applicationContext,
@@ -453,11 +531,6 @@ class MainActivity : ComponentActivity() {
                     if (showSettings) cacheBytes = withContext(Dispatchers.IO) {
                         cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
                     }
-                }
-                LaunchedEffect(Unit) {
-                    // Each app launch opens a fresh conversation; history stays available in the drawer.
-                    kotlinx.coroutines.delay(500)
-                    runCatching { viewModel.newSession() }
                 }
                 LaunchedEffect(taskEngine) {
                     runCatching { taskEngine.load(appPreferencesManager.load().toTaskEnginePolicy()) }
@@ -486,7 +559,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 var pendingExport by remember { mutableStateOf("") }
-                val exportDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+                val exportDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
                     if (uri != null) composeScope.launch(Dispatchers.IO) {
                         val saved = runCatching {
                             contentResolver.openOutputStream(uri)?.use { it.write(pendingExport.toByteArray(Charsets.UTF_8)) }
@@ -494,6 +567,51 @@ class MainActivity : ComponentActivity() {
                         }.isSuccess
                         withContext(Dispatchers.Main) {
                             viewModel.showNotice(if (saved) "会话已导出" else "导出失败，请重试")
+                        }
+                    }
+                }
+                var pendingPromptExport by remember { mutableStateOf("") }
+                val promptExportDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+                    if (uri != null) composeScope.launch(Dispatchers.IO) {
+                        val saved = runCatching {
+                            contentResolver.openOutputStream(uri)?.use { it.write(pendingPromptExport.toByteArray(Charsets.UTF_8)) }
+                                ?: error("无法写入所选位置")
+                        }.isSuccess
+                        withContext(Dispatchers.Main) { viewModel.showNotice(if (saved) "自定义提示词已导出" else "提示词导出失败，请重试") }
+                    }
+                }
+                val promptImportDocument = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                    if (uri != null) composeScope.launch(Dispatchers.IO) {
+                        val parsed = runCatching {
+                            val bytes = contentResolver.openInputStream(uri)?.use { input ->
+                                val output = java.io.ByteArrayOutputStream()
+                                val buffer = ByteArray(8192)
+                                var total = 0
+                                while (true) {
+                                    val count = input.read(buffer)
+                                    if (count < 0) break
+                                    total += count
+                                    require(total <= PromptLibraryStore.MAX_IMPORT_BYTES) { "提示词文件过大" }
+                                    output.write(buffer, 0, count)
+                                }
+                                output.toByteArray()
+                            } ?: error("无法读取所选文件")
+                            PromptLibraryStore.importPortable(bytes.toString(Charsets.UTF_8)).getOrThrow()
+                        }
+                        withContext(Dispatchers.Main) {
+                            parsed.fold(
+                                onSuccess = { incoming ->
+                                    val knownIds = customPrompts.mapTo(mutableSetOf()) { it.id }
+                                    val additions = incoming.filter { knownIds.add(it.id) }.take((PromptLibraryStore.MAX_COUNT - customPrompts.size).coerceAtLeast(0))
+                                    val next = customPrompts + additions
+                                    if (additions.isEmpty()) viewModel.showNotice("没有新增模板；已存在的 ID 或已满的模板库会被跳过")
+                                    else if (promptLibraryStore.save(next)) {
+                                        customPrompts = next
+                                        viewModel.showNotice("已导入 ${additions.size} 项" + if (incoming.size > additions.size) "，跳过 ${incoming.size - additions.size} 项重复或超出上限的模板" else "")
+                                    } else viewModel.showNotice("提示词导入未保存，请检查设备存储空间")
+                                },
+                                onFailure = { error -> viewModel.showNotice(error.message?.take(120) ?: "提示词文件无效") },
+                            )
                         }
                     }
                 }
@@ -779,21 +897,44 @@ class MainActivity : ComponentActivity() {
                 }
                 viewModel.onStateChanged = { uiState = it }
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    val screen = when {
+                        showLink -> "link"; showHealth -> "health"; showCenter -> "notifications"
+                        showArena -> "arena"; showAudit -> "audit"; showSettings -> "settings"
+                        showTaskCenter -> "tasks"; else -> "chat"
+                    }
                     AnimatedContent(
-                        targetState = showSettings || showTaskCenter || showHealth || showCenter || showArena,
-                        transitionSpec = {
-                            if (targetState) {
-                                (slideInHorizontally(tween(screenTransitionMillis)) { it / 5 } + fadeIn(tween(screenTransitionMillis))) togetherWith
-                                    (slideOutHorizontally(tween(screenTransitionMillis)) { -it / 12 } + fadeOut(tween(screenTransitionMillis)))
-                            } else {
-                                (slideInHorizontally(tween(screenTransitionMillis)) { -it / 12 } + fadeIn(tween(screenTransitionMillis))) togetherWith
-                                    (slideOutHorizontally(tween(screenTransitionMillis)) { it / 5 } + fadeOut(tween(screenTransitionMillis)))
-                            }
-                        },
+                        targetState = screen,
+                        transitionSpec = { gatherPageTransition(targetState != "chat", reducedMotion) },
                         label = "main-screen-transition",
-                    ) { showingNonChat ->
-                    if (showingNonChat) {
-                    if (showHealth) {
+                    ) { destination ->
+                    if (destination != "chat") {
+                    if (destination == "link") {
+                        GatherLinkScreen(
+                            session = gatherLinkSession,
+                            onCheckUpdates = checkForUpdates,
+                            updateChecking = updateChecking,
+                            updateStatus = when {
+                                updateChecking -> "正在检查更新"
+                                updateResult is UpdateCheckResult.Available -> "发现新版本"
+                                updateResult is UpdateCheckResult.UpToDate -> "已是最新版本"
+                                updateResult is UpdateCheckResult.NoInstallableApk -> "发布中没有可安装的 APK"
+                                updateResult is UpdateCheckResult.InvalidMetadata -> "版本信息无效"
+                                updateResult is UpdateCheckResult.Failed -> "检查失败，请重试"
+                                else -> "尚未检查更新"
+                            },
+                            onBack = { showLink = false },
+                            onShareInvite = { address, code ->
+                                val invite = "Gather Link 设备互联\n连接地址：$address\n配对码：$code\n请让两台设备连接同一 Wi‑Fi。"
+                                runCatching {
+                                    startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_TEXT, invite)
+                                    }, "分享 Gather Link 连接信息"))
+                                }.onFailure { viewModel.showNotice("无法打开分享面板") }
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else if (destination == "health") {
                         HealthCenterScreen(
                             monitor = healthMonitor,
                             healingEngine = healingEngine,
@@ -834,7 +975,7 @@ class MainActivity : ComponentActivity() {
                             onBack = { showHealth = false },
                             modifier = Modifier.fillMaxSize(),
                         )
-                    } else if (showCenter) {
+                    } else if (destination == "notifications") {
                         NotificationCenterScreen(
                             events = centerEvents,
                             notificationsEnabled = notificationsEnabled,
@@ -845,7 +986,7 @@ class MainActivity : ComponentActivity() {
                             onBack = { showCenter = false },
                             modifier = Modifier.fillMaxSize(),
                         )
-                    } else if (showArena) {
+                    } else if (destination == "arena") {
                         ArenaScreen(
                             profiles = profiles,
                             sessions = arenaSessions,
@@ -869,7 +1010,7 @@ class MainActivity : ComponentActivity() {
                             onBack = { showArena = false },
                             modifier = Modifier.fillMaxSize(),
                         )
-                    } else if (showAudit) {
+                    } else if (destination == "audit") {
                         AuditScreen(
                             entries = auditEntries,
                             onExport = {
@@ -880,7 +1021,7 @@ class MainActivity : ComponentActivity() {
                             onBack = { showAudit = false },
                             modifier = Modifier.fillMaxSize(),
                         )
-                    } else if (showSettings) {
+                    } else if (destination == "settings") {
                         FullSettingsCenter(
                             preferences = appPreferences,
                             onPreferencesChanged = { next ->
@@ -935,7 +1076,9 @@ class MainActivity : ComponentActivity() {
                                 val started = viewModel.clearAllHistory { saved ->
                                     composeScope.launch {
                                         if (!saved) {
-                                            settingsOperationMessage = "聊天历史写入失败；请检查存储空间后重试"
+                                            settingsOperationMessage = if (viewModel.state.notice?.contains("读取失败") == true)
+                                                "聊天历史读取失败，已暂停清除以保护原数据"
+                                            else "聊天历史写入失败；请检查存储空间后重试"
                                             return@launch
                                         }
                                         val attachmentsRemoved = withContext(Dispatchers.IO) {
@@ -945,7 +1088,9 @@ class MainActivity : ComponentActivity() {
                                         settingsOperationMessage = if (attachmentsRemoved) "聊天历史与引用附件已清除" else "聊天记录已清除，但部分附件文件清理失败"
                                     }
                                 }
-                                if (!started) settingsOperationMessage = "会话仍在加载，稍后重试"
+                                if (!started) settingsOperationMessage = if (viewModel.state.notice?.contains("读取失败") == true)
+                                    "聊天历史读取失败，已暂停清除以保护原数据"
+                                else "会话仍在加载，稍后重试"
                             },
                             onClearUsage = {
                                 composeScope.launch {
@@ -1078,6 +1223,71 @@ class MainActivity : ComponentActivity() {
                                 )
                                 settingsMessage = "已填入本地预设（Ollama 无需真实密钥，已填占位）。模拟器用 10.0.2.2；真机改电脑局域网 IP，并给 Ollama 设置 OLLAMA_HOST=0.0.0.0"
                             },
+                            onDuplicateProfile = { id ->
+                                val duplicate = settingsManager.duplicateProfile(id)
+                                if (duplicate != null) {
+                                    profiles = settingsManager.profiles()
+                                    settings = duplicate
+                                    viewModel.setModelChoices(profiles)
+                                    settingsMessage = "已创建独立副本；API Key 留在加密存储中，可直接修改配置后保存"
+                                    settingsMessageIsError = false
+                                } else {
+                                    settingsMessage = "复制配置失败，请重试"
+                                    settingsMessageIsError = true
+                                }
+                            },
+                            onExportProfile = { id ->
+                                val serialized = settingsManager.exportProfile(id)
+                                if (serialized != null) {
+                                    (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                                        .setPrimaryClip(ClipData.newPlainText("Gather AI 服务商配置", serialized))
+                                    settingsMessage = "不含 API Key 的 JSON 配置已复制到剪贴板"
+                                    settingsMessageIsError = false
+                                } else {
+                                    settingsMessage = "无法读取此服务商配置"
+                                    settingsMessageIsError = true
+                                }
+                            },
+                            onExportAllProfiles = {
+                                val serialized = settingsManager.exportProfilesBundle()
+                                if (serialized != null) {
+                                    (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                                        .setPrimaryClip(ClipData.newPlainText("Gather AI 服务商配置包", serialized))
+                                    settingsMessage = "${profiles.size} 个服务商配置的无密钥备份已复制到剪贴板"
+                                    settingsMessageIsError = false
+                                } else {
+                                    settingsMessage = "当前没有可导出的服务商配置"
+                                    settingsMessageIsError = true
+                                }
+                            },
+                            onImportProfile = { serialized ->
+                                when (val imported = settingsManager.importProfileDraft(serialized)) {
+                                    is AiSettingsManager.ProfileImportResult.Success -> {
+                                        settings = imported.settings
+                                        settingsMessage = "配置已载入草稿；请检查 Base URL、重新填写 API Key，再保存配置"
+                                        settingsMessageIsError = false
+                                        true
+                                    }
+                                    is AiSettingsManager.ProfileImportResult.BundleSuccess -> {
+                                        profiles = settingsManager.profiles()
+                                        viewModel.setModelChoices(profiles)
+                                        imported.profiles.firstOrNull()?.let { settings = it }
+                                        settingsMessage = "批量导入新增 ${imported.profiles.size} 个停用配置，跳过 ${imported.skippedDuplicates} 个重复项；重新填写密钥并启用后才可使用"
+                                        settingsMessageIsError = false
+                                        true
+                                    }
+                                    is AiSettingsManager.ProfileImportResult.Invalid -> {
+                                        settingsMessage = imported.message
+                                        settingsMessageIsError = true
+                                        false
+                                    }
+                                    AiSettingsManager.ProfileImportResult.StorageError -> {
+                                        settingsMessage = "配置包解析成功，但加密存储写入失败"
+                                        settingsMessageIsError = true
+                                        false
+                                    }
+                                }
+                            },
                             onDeleteProfile = { id ->
                                 if (settingsManager.deleteProfile(id)) {
                                     profiles = settingsManager.profiles()
@@ -1094,6 +1304,12 @@ class MainActivity : ComponentActivity() {
                                     baseUrl = settings.baseUrl,
                                     model = settings.model,
                                     apiKey = settings.apiKey.ifBlank { saved?.apiKey.orEmpty() },
+                                    temperature = settings.temperature.toDoubleOrNull(),
+                                    maxOutputTokens = settings.maxOutputTokens.toIntOrNull(),
+                                    systemInstruction = settings.systemInstruction,
+                                    customHeaders = parseCustomHeaders(settings.customHeaders).getOrDefault(emptyMap()),
+                                    connectTimeoutMs = settings.connectTimeoutSeconds.toIntOrNull()?.takeIf { it in 1..120 }?.times(1000),
+                                    readTimeoutMs = settings.readTimeoutSeconds.toIntOrNull()?.takeIf { it in 1..600 }?.times(1000),
                                 )
                                 settingsMessage = "正在测试连接…"
                                 settingsMessageIsError = false
@@ -1114,6 +1330,55 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             },
+                            onFetchModels = {
+                                val selectedSettings = settings
+                                val selectedProfileId = selectedSettings.id
+                                val saved = settingsManager.configFor(selectedProfileId, allowDisabled = true)
+                                val modelConfig = AiChatConfig(
+                                    baseUrl = selectedSettings.baseUrl,
+                                    model = selectedSettings.model.ifBlank { saved?.model ?: "catalog" },
+                                    apiKey = selectedSettings.apiKey.ifBlank { saved?.apiKey.orEmpty() },
+                                    customHeaders = parseCustomHeaders(selectedSettings.customHeaders).getOrDefault(emptyMap()),
+                                    connectTimeoutMs = selectedSettings.connectTimeoutSeconds.toIntOrNull()?.takeIf { it in 1..120 }?.times(1000),
+                                    readTimeoutMs = selectedSettings.readTimeoutSeconds.toIntOrNull()?.takeIf { it in 1..600 }?.times(1000),
+                                )
+                                val protocol = selectedSettings.providerProtocol
+                                modelsLoading = true
+                                settingsMessage = "正在读取模型目录…"
+                                settingsMessageIsError = false
+                                composeScope.launch {
+                                    try {
+                                        when (val result = providerRegistry.create(protocol) { modelConfig }.listModels()) {
+                                            is com.tim.futureai.core.common.AppResult.Success -> {
+                                                if (settings.id == selectedProfileId) {
+                                                    val existing = settings.availableModels.split(Regex("[,\\r\\n]+"))
+                                                    settings = settings.copy(
+                                                        availableModels = (existing + result.data).map(String::trim)
+                                                            .filter(String::isNotBlank).filterNot { it == settings.model }
+                                                            .distinct().take(300).joinToString("\n"),
+                                                    )
+                                                    settingsMessage = "已读取 ${result.data.size} 个模型 ID；可搜索并选择默认模型"
+                                                    settingsMessageIsError = false
+                                                }
+                                            }
+                                            is com.tim.futureai.core.common.AppResult.Failure -> {
+                                                if (settings.id == selectedProfileId) {
+                                                    settingsMessage = ChatViewModel.errorToUserMessage(result.error)
+                                                    settingsMessageIsError = true
+                                                }
+                                            }
+                                        }
+                                    } catch (error: Exception) {
+                                        if (settings.id == selectedProfileId) {
+                                            settingsMessage = "读取模型目录失败，请检查网络与服务商配置"
+                                            settingsMessageIsError = true
+                                        }
+                                    } finally {
+                                        modelsLoading = false
+                                    }
+                                }
+                            },
+                            modelsLoading = modelsLoading,
                             usage = usage,
                             modifier = Modifier.fillMaxSize(),
                             includeUsageAndUpdates = false,
@@ -1121,6 +1386,11 @@ class MainActivity : ComponentActivity() {
                                 val activeProfileId = settingsManager.load().id
                                 this[activeProfileId] = (this[activeProfileId] ?: 0) + uiState.sessions.count { it.modelProfileId == null }
                             },
+                            instructionTemplates = instructionTemplates,
+                            onSaveInstructionTemplate = saveInstructionTemplate,
+                            onDeleteInstructionTemplate = deleteInstructionTemplate,
+                            onImportInstructionTemplates = importInstructionTemplates,
+                            onExportInstructionTemplates = exportInstructionTemplates,
                         )
                             },
                             usageContent = { filteredUsage ->
@@ -1238,12 +1508,41 @@ class MainActivity : ComponentActivity() {
                         onRetry = viewModel::retry,
                         onNewSession = viewModel::newSession,
                         onSelectSession = viewModel::selectSession,
+                        onSearchSessionContent = viewModel::searchSessionContent,
                         onRenameSession = viewModel::renameSession,
                         onToggleSessionPinned = viewModel::toggleSessionPinned,
                         onArchiveSession = viewModel::archiveSession,
                         onDeleteSessions = viewModel::deleteSessions,
+                        onArchiveSessions = viewModel::archiveSessions,
+                        onShareSessions = { ids ->
+                            val text = viewModel.exportSessions(ids)
+                            if (text.isNullOrBlank()) viewModel.showNotice("所选会话没有可分享的内容")
+                            else runCatching {
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_SUBJECT, "Gather AI 会话记录（Markdown）")
+                                    putExtra(Intent.EXTRA_TEXT, text)
+                                }
+                                startActivity(Intent.createChooser(shareIntent, "分享所选会话"))
+                            }.onFailure { viewModel.showNotice("无法打开分享面板") }
+                        },
+                        onExportSessions = { ids ->
+                            val text = viewModel.exportSessions(ids)
+                            if (text.isNullOrBlank()) viewModel.showNotice("所选会话没有可导出的内容")
+                            else {
+                                pendingExport = text
+                                runCatching { exportDocument.launch("Gather-AI-会话记录-${System.currentTimeMillis()}.md") }
+                                    .onFailure { viewModel.showNotice("无法打开文件保存器") }
+                            }
+                        },
                         onDeleteSession = viewModel::deleteSession,
                         onModelSelected = viewModel::selectModel,
+                        onUpdateSessionInstruction = viewModel::updateActiveSessionInstruction,
+                        instructionTemplates = instructionTemplates,
+                        onSaveInstructionTemplate = saveInstructionTemplate,
+                        onDeleteInstructionTemplate = deleteInstructionTemplate,
+                        onImportInstructionTemplates = importInstructionTemplates,
+                        onExportInstructionTemplates = exportInstructionTemplates,
                         onNextMessageModelSelected = viewModel::selectModelForNextMessage,
                         onPickAttachments = {
                             attachmentPicker.launch(arrayOf(
@@ -1252,7 +1551,6 @@ class MainActivity : ComponentActivity() {
                             ))
                         },
                         onRemoveAttachment = { id ->
-                            uiState.pendingAttachments.firstOrNull { it.id == id }?.let(AttachmentImporter::delete)
                             viewModel.removeAttachment(id)
                         },
                         onListen = {
@@ -1287,20 +1585,36 @@ class MainActivity : ComponentActivity() {
                             }.onFailure { viewModel.showNotice("无法打开分享面板") }
                         },
                         onExportSession = {
-                            pendingExport = buildString {
-                                append("# ").append(uiState.sessionTitle).append("\n\n")
-                                uiState.messages.forEach { message ->
-                                    append(if (message.role == com.tim.futureai.domain.model.MessageRole.USER) "你" else "Gather AI")
-                                        .append("\n").append(message.text).append("\n")
-                                    message.attachments.forEach { append("附件：").append(it.name).append("\n") }
-                                    append("\n")
-                                }
+                            pendingExport = viewModel.exportSession(uiState.activeSessionId).orEmpty()
+                            if (pendingExport.isBlank()) viewModel.showNotice("当前会话没有可导出的内容")
+                            else {
+                                val safeName = uiState.sessionTitle.replace(Regex("[^\\p{L}\\p{N}_-]"), "_").take(40).ifBlank { "Gather-AI" }
+                                runCatching { exportDocument.launch("$safeName.md") }
+                                    .onFailure { viewModel.showNotice("无法打开文件保存器") }
                             }
-                            val safeName = uiState.sessionTitle.replace(Regex("[^\\p{L}\\p{N}_-]"), "_").take(40).ifBlank { "Gather-AI" }
-                            runCatching { exportDocument.launch("$safeName.txt") }
-                                .onFailure { viewModel.showNotice("无法打开文件保存器") }
                         },
                         onExamplePrompt = viewModel::updateInput,
+                        customPrompts = customPrompts,
+                        onSaveCustomPrompt = { prompt ->
+                            val next = (customPrompts.filterNot { it.id == prompt.id } + prompt).takeLast(PromptLibraryStore.MAX_COUNT)
+                            if (promptLibraryStore.save(next)) { customPrompts = next; true }
+                            else { viewModel.showNotice("提示词保存失败，请检查设备存储空间"); false }
+                        },
+                        onDeleteCustomPrompt = { id ->
+                            val next = customPrompts.filterNot { it.id == id }
+                            if (promptLibraryStore.save(next)) { customPrompts = next; true }
+                            else { viewModel.showNotice("提示词删除失败，请重试"); false }
+                        },
+                        onImportCustomPrompts = { promptImportDocument.launch(arrayOf("application/json", "text/json")) },
+                        onExportCustomPrompts = {
+                            if (customPrompts.isEmpty()) viewModel.showNotice("还没有自定义提示词可导出")
+                            else {
+                                pendingPromptExport = PromptLibraryStore.exportPortable(customPrompts)
+                                runCatching { promptExportDocument.launch("Gather-AI-prompt-library.json") }
+                                    .onFailure { viewModel.showNotice("无法打开文件保存器") }
+                            }
+                        },
+                        onToggleBookmark = viewModel::toggleBookmark,
                         onSettingsClick = {
                             showTaskCenter = false
                             settings = settingsManager.load()
@@ -1330,6 +1644,15 @@ class MainActivity : ComponentActivity() {
                                 reputationViews = reputationStore.allViews()
                             }
                             showArena = true
+                        },
+                        onLinkClick = {
+                            showSettings = false
+                            showTaskCenter = false
+                            showHealth = false
+                            showCenter = false
+                            showArena = false
+                            showAudit = false
+                            showLink = true
                         },
                         isAiConfigured = isAiConfigured,
                         showModelNames = appPreferences.showModelNames,

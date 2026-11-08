@@ -1,5 +1,11 @@
 # Gather AI
 
+Current internal build: **v0.1.11.02 (Revise1)**, versionCode **65**.
+
+The 0.11 interface uses restrained monochrome and low-saturation themes, optical glass headers/composer, coordinated page transitions, a searchable conversation drawer, rich Markdown and a reorganized settings center. Glass intensity, lightweight rendering, animations and typography are configurable. Android 7+ is supported; background blur requires Android 12+, and edge refraction requires Android 13+.
+
+Validation: 261 JVM tests and 6 emulator instrumentation tests passed; debug APK assembly and lint passed (0 errors; existing warnings remain). The emulator checks use a local SSE service and the embedded Gather Link HTTP server. Real-provider billing/availability, physical-device frame rate, speech services and multi-device/router behavior remain outside this acceptance run. See `DESIGN_SYSTEM.md` for the implemented visual contract.
+
 **Your AI. Your Models. Your Workflow.**
 
 Gather AI is an Android-native AI assistant built with Kotlin and Jetpack Compose. It aims to bring multiple AI providers, personalized conversations, and intelligent task workflows into one unified mobile experience.
@@ -17,7 +23,7 @@ Instead of being limited to a single AI model, Gather AI is designed to evolve i
 
 ## 🚀 Current Development
 
-Gather AI currently supports SSE streaming chat, per-conversation model selection across configurable OpenAI-compatible providers, image and document attachments, system speech input and TTS, usage tracking, and message/session tools. The app also includes secure credential storage and GitHub Release updates. Unsupported attachment formats and unavailable provider usage are reported explicitly.
+Gather AI currently supports SSE streaming chat, per-conversation model selection across configurable OpenAI-compatible providers, image and document attachments, system speech input and TTS, usage tracking, and message/session tools. The app also includes secure credential storage, GitHub Release updates, and Gather Link for short-lived local-network file transfer between Android and browser-based devices.
 
 ## 🛠️ Technology Stack
 
@@ -53,6 +59,11 @@ The project license has not yet been specified. Please check the repository for 
 
 ## 当前能力
 
+- 会话导出和批量分享使用统一 Markdown 格式，包含会话时间、消息时间、附件状态和未发送草稿。
+- 会话管理支持批量归档、恢复与合并分享所选会话，导出内容会标注消息、附件名称及未发送草稿。
+- 删除会话或草稿时自动清理不再引用的应用内附件，仍被其他会话使用的文件会保留。
+- 会话管理支持按会话名称、消息、草稿及附件文件名搜索，匹配结果显示本地上下文预览。
+- 每个会话独立保存未发送的文字和附件草稿，切换会话可恢复；输入停顿 350 ms 后自动写入本地，进入后台时触发保存。会话侧栏与管理列表显示草稿预览，发送后清除当前草稿。重新打开应用仍从新会话开始，之前的草稿可从侧栏找回；系统重建界面时恢复当前会话。编辑历史消息前需先处理当前草稿，以免覆盖。
 - SSE 流式聊天，支持停止、重试、重新生成和保留部分回复。
 - 多服务商/模型配置、单会话模型选择、Android Keystore 密钥保护与连接测试。
 - 图片、文本和 DOCX 附件导入；图片分析需在模型设置中显式启用视觉能力，未支持格式会提示原因。
@@ -61,6 +72,9 @@ The project license has not yet been specified. Please check the repository for 
 - Liquid Reality 视觉体系：四套完整主题（Liquid Indigo、Obsidian、Arctic 浅色、Aurora）、真实液态玻璃渲染（背景采样模糊 + AGSL 边缘折射近似）与五种玻璃材质；用户可控制材质强度、低性能模式与动态背景，全部真实作用于渲染。
 - Verified Task Engine：从聊天进入任务中心，由当前路由模型提议结构化计划，再经本地依赖/Schema/权限/验证规则校验后执行；任务状态、检查点、恢复记录和审计事件持久化。
 - 首批任务工具只在本地运行：安全算术、JSON 必需字段检查、文本包含/排除规则、任务与验证证据查询。所有步骤均需明确验证，只有 `VERIFIED` 步骤能完成依赖或形成成功结论。
+- **Gather Link 设备互联**：Android 设备临时开启局域网接收端，手机、平板和电脑通过浏览器输入 6 位配对码连接；可下载手机选中的文件、向手机发送文件，并让本次会话中已配对的设备下载彼此发送到收件箱的文件。支持最多 12 台配对设备，单个接收文件上限 2 GB。收到的文件存放在应用私有收件箱，用户可另存到所选位置或删除；离开互联页后服务器和配对会话关闭。
+
+Gather Link 目前仅支持同一可信局域网内的 IPv4 连接，不提供云端中继或传输加密；请勿在公共 Wi‑Fi 或不可信网络中传送敏感文件。Android 17 设备会在开启互联前请求本地网络权限。
 
 任务规划会把用户目标和本地工具清单发送给所选 AI 服务商；执行器不会运行模型生成代码，也不会操作系统界面或任意应用。计划默认需要用户检查后开始，高风险工具即使加入也必须独立逐次确认。
 
