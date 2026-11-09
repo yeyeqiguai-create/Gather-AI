@@ -10,14 +10,14 @@
       {
         "name": "Gather-AI-v0.2.0.01-Revise3-internal-dev.apk",
         "browser_download_url": "https://github.com/yeyeqiguai-create/Gather-AI-Releases/releases/download/v0.2.0.01-Revise3-internal-dev/Gather-AI-v0.2.0.01-Revise3-internal-dev.apk",
-        "digest": "sha256:e5e46b2cc8a9a90b64f31b6ce05aa75782bec6d0cc3825f90a918782cfcccd7f",
-        "size": 16555032
+        "digest": "sha256:c6a7a43f31308bae2fba1f70dda3aa3b214b38a4c48da3b712fc410b34f0d324",
+        "size": 16705929
       },
       {
         "name": "update.json",
         "browser_download_url": "https://github.com/yeyeqiguai-create/Gather-AI-Releases/releases/download/v0.2.0.01-Revise3-internal-dev/update.json",
-        "digest": "sha256:1fd9aa282bddc6f72c404410f15b97a4ff304ce8cef33994f9b71cf7fa0b99af",
-        "size": 936
+        "digest": "sha256:d8ddbab9edef8d027c0ba01966c59d0dfbbe973dea04afa36ba23f008003b0d3",
+        "size": 938
       }
     ]
   },
